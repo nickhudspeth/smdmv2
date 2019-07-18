@@ -1135,48 +1135,9 @@ int main(void) {
 
 		/* USER CODE BEGIN 3 */
 
-//    while (1) {
-//
-////      volatile uint32_t currb = TMC4361A_FIELD_READ(&TMC4361A,
-////                                                    TMC4361A_CURRENTB_RD,
-////                                                    TMC4361A_CURRENTB_MASK,
-////                                                    TMC4361A_CURRENTB_SHIFT);
-////      TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RESET_REG, TMC4361A_RESET_REG_MASK,
-////                              TMC4361A_RESET_REG_SHIFT, 0x525354);
-////      volatile uint32_t verno = TMC4361A_FIELD_READ(&TMC4361A,
-////                                                    TMC4361A_VERSION_NO_RD,
-////                                                    TMC4361A_VERSION_NO_MASK,
-////                                                    TMC4361A_VERSION_NO_SHIFT);
-//      volatile int32_t chopconf = TMC2160_FIELD_READ(&TMC2160, TMC2160_CHOPCONF,
-//                                                     TMC2160_HSTRT_MASK,
-//                                                     TMC2160_HSTRT_SHIFT);
-//      TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_CHOPCONF, TMC2160_HSTRT_MASK,
-//                           TMC2160_HSTRT_SHIFT, 4);
-//      chopconf = TMC2160_FIELD_READ(&TMC2160, TMC2160_CHOPCONF,
-//                                    TMC2160_HSTRT_MASK, TMC2160_HSTRT_SHIFT);
-//      HAL_Delay(1);
-//    }
-//		int32_t val_rst = TMC2160_FIELD_READ(&TMC2160, TMC2160_GSTAT,
-//				TMC2160_RESET_MASK, TMC2160_RESET_SHIFT);
-//		int32_t val_drv_err = TMC2160_FIELD_READ(&TMC2160, TMC2160_GSTAT,
-//				TMC2160_DRV_ERR_MASK, TMC2160_DRV_ERR_SHIFT);
-//		int32_t val = TMC2160_FIELD_READ(&TMC2160, TMC2160_GSTAT,
-//				TMC2160_UV_CP_MASK, TMC2160_UV_CP_SHIFT);
-//		TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GSTAT, TMC2160_UV_CP_MASK,
-//				TMC2160_UV_CP_SHIFT, 0);
-//
-//		int32_t iostate = TMC2160_FIELD_READ(&TMC2160, TMC2160_IOIN, 0xFFFFFFFF,
-//				0);
-//		ProcessEventFlags();
-//		sparse_Exec(parser, "X,1,200,1");
-//		sparse_Exec(parser, "A,5000,5000,5000,5000,1000,1000");
-//		sparse_Exec(parser, "B,30,30");
-//		sparse_Exec(parser, "C,1,50");
-//		sparse_Exec(parser, sys_cmd_buffer);
 		if (new_cmd_flag) {
 			ProcessCmdBuffer();
 			ts_write(sys_cmd_buffer);
-			//sparse_Exec(parser, sys_cmd_buffer);
 		}
 	}
 	/* USER CODE END 3 */

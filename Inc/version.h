@@ -1,4 +1,4 @@
 #ifndef VERSION_H
 #define VERSION_H
-static const char * git_sha ="ecb6d7f7d368b7bccbcb15001a13146ca98878";
+static const char * git_sha ="0662c8fd4175d711610ba97f246c39c21d919d";
 #endif
