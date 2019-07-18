@@ -59,6 +59,8 @@ void _Error_Handler(char *file, uint32_t line);
 
 /* Private defines -----------------------------------------------------------*/
 #define LED_TIMER_BASE_PERIOD 500
+#define ADDR_SEL_Pin GPIO_PIN_14
+#define ADDR_SEL_GPIO_Port GPIOC
 #define DIAG0_Pin GPIO_PIN_0
 #define DIAG0_GPIO_Port GPIOA
 #define DIAG1_Pin GPIO_PIN_1
@@ -69,10 +71,12 @@ void _Error_Handler(char *file, uint32_t line);
 #define LED_G_GPIO_Port GPIOA
 #define LED_B_Pin GPIO_PIN_4
 #define LED_B_GPIO_Port GPIOA
+#define SPI1_NSS_Pin GPIO_PIN_0
+#define SPI1_NSS_GPIO_Port GPIOB
+#define RESET_Pin GPIO_PIN_1
+#define RESET_GPIO_Port GPIOB
 #define START_Pin GPIO_PIN_11
 #define START_GPIO_Port GPIOA
-#define RESET_Pin GPIO_PIN_12
-#define RESET_GPIO_Port GPIOA
 #define FREEZE_Pin GPIO_PIN_15
 #define FREEZE_GPIO_Port GPIOA
 #define INTR_Pin GPIO_PIN_4
@@ -82,7 +86,9 @@ void _Error_Handler(char *file, uint32_t line);
 #define TARGET_REACHED_GPIO_Port GPIOB
 #define TARGET_REACHED_EXTI_IRQn EXTI9_5_IRQn
 /* USER CODE BEGIN Private defines */
-
+#define EEPROM_STORAGE_ADDR 0x57
+#define EEPROM_STORAGE_TEST_AREA_START_ADDR 0x7B
+#define EEPROM_EUI_ADDR 0xFA
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

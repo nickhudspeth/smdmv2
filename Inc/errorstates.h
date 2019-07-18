@@ -57,6 +57,9 @@
 #define ERRSTATE_ESTOP 0x04
 #define ERRSTATE_OVERHEAT 0x14
 #define ERRSTATE_OVERCURRENT 0x11
+#define ERRSTATE_UNINITIALIZED 0x0A
+#define ERRSTATE_SELFCHECK_FAIL 0x1D
+
 /***********************    FUNCTION PROTOTYPES    ***********************/
 
 #endif /* ERRORSTATES_H_ */

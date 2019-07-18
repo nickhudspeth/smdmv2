@@ -34,10 +34,15 @@
 								</outputEntries>
 							</builder>
 							<tool id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.1378133093" name="MCU GCC Compiler" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler">
-								<option defaultValue="gnu.c.optimization.level.none" id="fr.ac6.managedbuild.gnu.c.compiler.option.optimization.level.262058369" name="Optimization Level" superClass="fr.ac6.managedbuild.gnu.c.compiler.option.optimization.level" useByScannerDiscovery="false" value="fr.ac6.managedbuild.gnu.c.optimization.level.debug" valueType="enumerated"/>
+								<option defaultValue="gnu.c.optimization.level.none" id="fr.ac6.managedbuild.gnu.c.compiler.option.optimization.level.262058369" name="Optimization Level" superClass="fr.ac6.managedbuild.gnu.c.compiler.option.optimization.level" useByScannerDiscovery="false" value="fr.ac6.managedbuild.gnu.c.optimization.level.none" valueType="enumerated"/>
 								<option id="gnu.c.compiler.option.debugging.level.1011766633" name="Debug Level" superClass="gnu.c.compiler.option.debugging.level" useByScannerDiscovery="false" value="gnu.c.debugging.level.max" valueType="enumerated"/>
 								<option id="gnu.c.compiler.option.include.paths.509542344" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/ic/TMC4361A}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/ic/TMC2160}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/libtmc4361a/Inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/helpers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/ramp}&quot;"/>
 									<listOptionValue builtIn="false" value="../Inc"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/libsparse/Inc}&quot;"/>
 									<listOptionValue builtIn="false" value="../Drivers/STM32L4xx_HAL_Driver/Inc"/>
@@ -79,7 +84,7 @@
 								<option id="fr.ac6.managedbuild.tool.gnu.cross.c.linker.script.1749690064" name="Linker Script (-T)" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.linker.script" useByScannerDiscovery="false" value="../STM32L432KCUx_FLASH.ld" valueType="string"/>
 								<option id="gnu.c.link.option.libs.1118524251" name="Libraries (-l)" superClass="gnu.c.link.option.libs" useByScannerDiscovery="false"/>
 								<option id="gnu.c.link.option.paths.1668294092" name="Library search path (-L)" superClass="gnu.c.link.option.paths" useByScannerDiscovery="false"/>
-								<option id="gnu.c.link.option.ldflags.1516913053" name="Linker flags" superClass="gnu.c.link.option.ldflags" useByScannerDiscovery="false" value="-specs=nosys.specs -specs=nano.specs" valueType="string"/>
+								<option id="gnu.c.link.option.ldflags.1516913053" name="Linker flags" superClass="gnu.c.link.option.ldflags" useByScannerDiscovery="false" value="-specs=nosys.specs -specs=nano.specs -u _printf_float" valueType="string"/>
 								<option id="gnu.c.link.option.other.1100234532" name="Other options (-Xlinker [option])" superClass="gnu.c.link.option.other" useByScannerDiscovery="false"/>
 								<inputType id="cdt.managedbuild.tool.gnu.c.linker.input.1562747125" superClass="cdt.managedbuild.tool.gnu.c.linker.input">
 									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
@@ -105,8 +110,47 @@
 							</tool>
 						</toolChain>
 					</folderInfo>
+					<folderInfo id="fr.ac6.managedbuild.config.gnu.cross.exe.debug.635227550.252632813" name="/" resourcePath="Drivers/TMC-API">
+						<toolChain id="fr.ac6.managedbuild.toolchain.gnu.cross.exe.debug.1092978917" name="Ac6 STM32 MCU GCC" superClass="fr.ac6.managedbuild.toolchain.gnu.cross.exe.debug" unusedChildren="">
+							<option id="fr.ac6.managedbuild.option.gnu.cross.prefix.2044100785.2060613669" name="Prefix" superClass="fr.ac6.managedbuild.option.gnu.cross.prefix.2044100785"/>
+							<option id="fr.ac6.managedbuild.option.gnu.cross.mcu.105921702.1247141532" name="Mcu" superClass="fr.ac6.managedbuild.option.gnu.cross.mcu.105921702"/>
+							<option id="fr.ac6.managedbuild.option.gnu.cross.board.504236735.1758521142" name="Board" superClass="fr.ac6.managedbuild.option.gnu.cross.board.504236735"/>
+							<option id="fr.ac6.managedbuild.option.gnu.cross.core.1083960614.1897188227" name="Core" superClass="fr.ac6.managedbuild.option.gnu.cross.core.1083960614"/>
+							<option id="fr.ac6.managedbuild.option.gnu.cross.instructionSet.1900396872.54580569" name="Instruction Set" superClass="fr.ac6.managedbuild.option.gnu.cross.instructionSet.1900396872"/>
+							<option id="fr.ac6.managedbuild.option.gnu.cross.fpu.328830096.595881049" name="Floating point hardware" superClass="fr.ac6.managedbuild.option.gnu.cross.fpu.328830096"/>
+							<option id="fr.ac6.managedbuild.option.gnu.cross.floatabi.1583649844.786024013" name="Floating-point ABI" superClass="fr.ac6.managedbuild.option.gnu.cross.floatabi.1583649844"/>
+							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="fr.ac6.managedbuild.targetPlatform.gnu.cross" isAbstract="false" osList="all" superClass="fr.ac6.managedbuild.targetPlatform.gnu.cross"/>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.1431595276" name="MCU GCC Compiler" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.1378133093">
+								<option id="gnu.c.compiler.option.include.paths.734736330" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/libtmc4361a/Inc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/helpers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/ic/TMC4361A}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/ic/TMC2160}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/TMC-API/tmc/ramp}&quot;"/>
+									<listOptionValue builtIn="false" value="../Inc"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/Drivers/libsparse/Inc}&quot;"/>
+									<listOptionValue builtIn="false" value="../Drivers/STM32L4xx_HAL_Driver/Inc"/>
+									<listOptionValue builtIn="false" value="../Drivers/STM32L4xx_HAL_Driver/Inc/Legacy"/>
+									<listOptionValue builtIn="false" value="../Drivers/CMSIS/Device/ST/STM32L4xx/Include"/>
+									<listOptionValue builtIn="false" value="../Drivers/CMSIS/Include"/>
+								</option>
+								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.c.454193761" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.c"/>
+								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.s.1082749212" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.s"/>
+							</tool>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.cpp.compiler.2033338310" name="MCU G++ Compiler" superClass="fr.ac6.managedbuild.tool.gnu.cross.cpp.compiler.736412126"/>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.c.linker.1989751757" name="MCU GCC Linker" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.linker.1691816540"/>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.cpp.linker.98769461" name="MCU G++ Linker" superClass="fr.ac6.managedbuild.tool.gnu.cross.cpp.linker.1767487467"/>
+							<tool id="fr.ac6.managedbuild.tool.gnu.archiver.1895360470" name="MCU GCC Archiver" superClass="fr.ac6.managedbuild.tool.gnu.archiver.1386058551"/>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.assembler.346207465" name="MCU GCC Assembler" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.319601965">
+								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.83902858" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
+								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.assembler.input.327072836" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.input"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
 					<sourceEntries>
-						<entry excluding="libsparse/test" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Drivers"/>
+						<entry excluding="libtmc4361a|TMC-API/tmc/ic/TMCC160|TMC-API/tmc/ic/TMC846x|TMC-API/tmc/ic/TMC8462|TMC-API/tmc/ic/TMC8461|TMC-API/tmc/ic/TMC6630|TMC-API/tmc/ic/TMC6200|TMC-API/tmc/ic/TMC5161|TMC-API/tmc/ic/TMC5160|TMC-API/tmc/ic/TMC5130|TMC-API/tmc/ic/TMC5072|TMC-API/tmc/ic/TMC5062|TMC-API/tmc/ic/TMC5041|TMC-API/tmc/ic/TMC5031|TMC-API/tmc/ic/TMC4671|TMC-API/tmc/ic/TMC4670|TMC-API/tmc/ic/TMC457|TMC-API/tmc/ic/TMC43xx|TMC-API/tmc/ic/TMC4361|TMC-API/tmc/ic/TMC4331|TMC-API/tmc/ic/TMC4330|TMC-API/tmc/ic/TMC429|TMC-API/tmc/ic/TMC424|TMC-API/tmc/ic/TMC4210|TMC-API/tmc/ic/TMC389|TMC-API/tmc/ic/TMC2660|TMC-API/tmc/ic/TMC262|TMC-API/tmc/ic/TMC2590|TMC-API/tmc/ic/TMC2224|TMC-API/tmc/ic/TMC2209|TMC-API/tmc/ic/TMC2208|TMC-API/tmc/ic/TMC2130|TMC-API/tmc/ic/TMC2041" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Drivers"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Inc"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="startup"/>
@@ -219,7 +263,7 @@
 						</toolChain>
 					</folderInfo>
 					<sourceEntries>
-						<entry excluding="libsparse/test" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Drivers"/>
+						<entry excluding="libtmc4361a|TMC-API/tmc/ic/TMCC160|TMC-API/tmc/ic/TMC846x|TMC-API/tmc/ic/TMC8462|TMC-API/tmc/ic/TMC8461|TMC-API/tmc/ic/TMC6630|TMC-API/tmc/ic/TMC6200|TMC-API/tmc/ic/TMC5161|TMC-API/tmc/ic/TMC5160|TMC-API/tmc/ic/TMC5130|TMC-API/tmc/ic/TMC5072|TMC-API/tmc/ic/TMC5062|TMC-API/tmc/ic/TMC5041|TMC-API/tmc/ic/TMC5031|TMC-API/tmc/ic/TMC4671|TMC-API/tmc/ic/TMC4670|TMC-API/tmc/ic/TMC457|TMC-API/tmc/ic/TMC43xx|TMC-API/tmc/ic/TMC4361|TMC-API/tmc/ic/TMC4331|TMC-API/tmc/ic/TMC4330|TMC-API/tmc/ic/TMC429|TMC-API/tmc/ic/TMC424|TMC-API/tmc/ic/TMC4210|TMC-API/tmc/ic/TMC389|TMC-API/tmc/ic/TMC2660|TMC-API/tmc/ic/TMC262|TMC-API/tmc/ic/TMC2590|TMC-API/tmc/ic/TMC2224|TMC-API/tmc/ic/TMC2209|TMC-API/tmc/ic/TMC2208|TMC-API/tmc/ic/TMC2130|TMC-API/tmc/ic/TMC2041" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Drivers"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Inc"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="startup"/>
@@ -246,4 +290,5 @@
 		<configuration configurationName="Release"/>
 	</storageModule>
 	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets"/>
+	<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
 </cproject>

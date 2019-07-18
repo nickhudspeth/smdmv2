@@ -7,3 +7,6 @@
 [submodule "Drivers/FwVersion"]
 	path = Drivers/FwVersion
 	url = ssh://git@gitlab.cdxserver.net:45038/CDxProjects/Gen2/Repositories/Firmware/FwVersion.git
+[submodule "Drivers/TMC-API"]
+	path = Drivers/TMC-API
+	url = https://github.com/trinamic/TMC-API.git
