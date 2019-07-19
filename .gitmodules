@@ -1,9 +1,6 @@
 [submodule "Drivers/libsparse"]
 	path = Drivers/libsparse
 	url = ssh://git@gitlab.cdxserver.net:45038/Libraries/libsparse.git
-[submodule "Drivers/libtmc4361a"]
-	path = Drivers/libtmc4361a
-	url = ssh://git@gitlab.cdxserver.net:45038/Libraries/libtmc4361a.git
 [submodule "Drivers/FwVersion"]
 	path = Drivers/FwVersion
 	url = ssh://git@gitlab.cdxserver.net:45038/CDxProjects/Gen2/Repositories/Firmware/FwVersion.git
