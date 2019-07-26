@@ -77,6 +77,8 @@ struct flags_t {
 	volatile uint8_t internal_temp_ready;
 	volatile uint8_t address_requested;
 	volatile uint8_t intr_triggered;
+	volatile uint8_t diag0_triggered;
+	volatile uint8_t diag1_triggered;
 	volatile uint8_t home_reached;
 	volatile uint8_t home_error;
 	volatile uint8_t cover_done;
@@ -107,6 +109,9 @@ uint8_t dma_tx_buf[DMA_TX_BUF_LENGTH] = { 0 };
 uint8_t dma_rx_buf[DMA_RX_BUF_LENGTH] = { 0 };
 float internal_temp = 0.0f;
 
+volatile int res;
+volatile int velcur;
+volatile int sgstat;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -145,8 +150,12 @@ void Test_RunSuite(void);
 void Test_LEDFunction(void);
 void Test_EEPROMStorageFunction();
 void Test_EEPROMAddressFunction();
+void System_InitDefaultState(void);
+void System_RunSelfTest(void);
 
 HAL_StatusTypeDef EEPROM_GetAddress(uint64_t *result);
+HAL_StatusTypeDef EEPROM_ReadData(uint8_t addr, uint8_t* data, uint32_t size);
+HAL_StatusTypeDef EEPROM_WriteData(uint8_t addr, uint8_t *data, uint32_t size);
 
 int32_t ConvertDistanceToFullStepsInt(float distance);
 int32_t ConvertDistanceToMicroStepsInt(float distance);
@@ -160,8 +169,9 @@ void Trinamic_ConfigureChopper(void);
 void Trinamic_ConfigureCoolstep(void);
 void Trinamic_ConfigureDCStep(void);
 void Trinamic_ConfigureEndstops(void);
-void Trinamic_ConfigureStallguard(void);
 void Trinamic_ConfigureMisc(void);
+void Trinamic_ConfigureStallguard(void);
+void Trinamic_ConfigureStealthchop(void);
 void tmc4361A_readWriteArray(uint8_t channel, uint8_t *data, size_t length);
 uint8_t TMC4361A_Reset(void);
 uint8_t TMC4361A_Restore(void);
@@ -192,12 +202,7 @@ void UART_IdleLineCallback(UART_HandleTypeDef *huart) {
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	/* Toggle LED pin states on expiry of LED update timer. */
-//  if (htim == &htim16) {
-//    HAL_GPIO_TogglePin(LED_R_GPIO_Port, LED_R_Pin);
-//    HAL_GPIO_TogglePin(LED_G_GPIO_Port, LED_G_Pin);
-//    HAL_GPIO_TogglePin(LED_B_GPIO_Port, LED_B_Pin);
-//  }
+
 }
 
 void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
@@ -223,15 +228,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	case INTR_Pin:
 		flags.intr_triggered = 1;
 		break;
+	case DIAG0_Pin:
+		flags.diag0_triggered = 1;
+		break;
+	case DIAG1_Pin:
+		flags.diag1_triggered = 1;
+		break;
 	default:
 		break;
 	}
 }
-
-//void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
-//  /* Release SPI NSS pin. */
-//  HAL_GPIO_WritePin(SPI1_NSS_GPIO_Port, SPI1_NSS_Pin, GPIO_PIN_SET);
-//}
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 	/** @todo: Internal temperature should be adjusted using
@@ -286,107 +292,126 @@ float ConvertMicroStepsToDistanceFloat(int32_t microsteps) {
 
 void ProcessEventFlags(void) {
 	char buf[64];
+	uint32_t tmc4361a_events, tmc2160_status;
 	if (flags.intr_triggered) {
 		/* Read events register. Events register is cleared after this read. */
-		int32_t events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
-		if (events & TMC4361A_TARGET_REACHED_MASK) {
+		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
+		if (tmc4361a_events & TMC4361A_TARGET_REACHED_MASK) {
 			flags.target_reached = 1;
 
 		}
-		if (events & TMC4361A_POS_COMP_REACHED_MASK) {
+		if (tmc4361a_events & TMC4361A_POS_COMP_REACHED_MASK) {
 
 		}
-		if (events & TMC4361A_VEL_REACHED_MASK) {
+		if (tmc4361a_events & TMC4361A_VEL_REACHED_MASK) {
 
 		}
-		if (events & TMC4361A_VEL_STATE_00_MASK) {
+		if (tmc4361a_events & TMC4361A_VEL_STATE_00_MASK) {
 
 		}
-		if (events & TMC4361A_VEL_STATE_01_MASK) {
+		if (tmc4361a_events & TMC4361A_VEL_STATE_01_MASK) {
 
 		}
-		if (events & TMC4361A_VEL_STATE_10_MASK) {
+		if (tmc4361a_events & TMC4361A_VEL_STATE_10_MASK) {
 
 		}
-		if (events & TMC4361A_RAMP_STATE_00_MASK) {
+		if (tmc4361a_events & TMC4361A_RAMP_STATE_00_MASK) {
 
 		}
-		if (events & TMC4361A_RAMP_STATE_01_MASK) {
+		if (tmc4361a_events & TMC4361A_RAMP_STATE_01_MASK) {
 
 		}
-		if (events & TMC4361A_RAMP_STATE_10_MASK) {
+		if (tmc4361a_events & TMC4361A_RAMP_STATE_10_MASK) {
 
 		}
-		if (events & TMC4361A_MAX_PHASE_TRAP_MASK) {
+		if (tmc4361a_events & TMC4361A_MAX_PHASE_TRAP_MASK) {
 
 		}
-		if (events & TMC4361A_FROZEN_MASK) {
+		if (tmc4361a_events & TMC4361A_FROZEN_MASK) {
 
 		}
-		if (events & TMC4361A_STOPL_EVENT_MASK) {
+		if (tmc4361a_events & TMC4361A_STOPL_EVENT_MASK) {
 
 		}
-		if (events & TMC4361A_STOPR_EVENT_MASK) {
+		if (tmc4361a_events & TMC4361A_STOPR_EVENT_MASK) {
 
 		}
-		if (events & TMC4361A_VSTOPL_ACTIVE_MASK) {
+		if (tmc4361a_events & TMC4361A_VSTOPL_ACTIVE_MASK) {
 
 		}
-		if (events & (TMC4361A_VSTOPL_ACTIVE_MASK << 1)) {
+		if (tmc4361a_events & (TMC4361A_VSTOPL_ACTIVE_MASK << 1)) {
 			/* VSTOPR event mask is not defined in the TMC4361A library,
 			 * so we make the appropriate mask by shifting VSTOPL_ACTIVE_MASK */
 
 		}
-		if (events & TMC4361A_HOME_ERROR_MASK) {
+		if (tmc4361a_events & TMC4361A_HOME_ERROR_MASK) {
 			flags.home_error = 1;
 
 		}
-		if (events & TMC4361A_XLATCH_DONE_MASK) {
+		if (tmc4361a_events & TMC4361A_XLATCH_DONE_MASK) {
 
 		}
-		if (events & TMC4361A_FS_ACTIVE_MASK) {
+		if (tmc4361a_events & TMC4361A_FS_ACTIVE_MASK) {
 
 		}
-		if (events & TMC4361A_ENC_FAIL_MASK) {
+		if (tmc4361a_events & TMC4361A_ENC_FAIL_MASK) {
 
 		}
-		if (events & TMC4361A_N_ACTIVE_MASK) {
+		if (tmc4361a_events & TMC4361A_N_ACTIVE_MASK) {
 
 		}
-		if (events & TMC4361A_ENC_DONE_MASK) {
+		if (tmc4361a_events & TMC4361A_ENC_DONE_MASK) {
 
 		}
-		if (events & TMC4361A_SER_ENC_DATA_FAIL_MASK) {
+		if (tmc4361a_events & TMC4361A_SER_ENC_DATA_FAIL_MASK) {
 
 		}
-		if (events & TMC4361A_SER_DATA_DONE_MASK) {
+		if (tmc4361a_events & TMC4361A_SER_DATA_DONE_MASK) {
 
 		}
-		if (events & TMC4361A_SERIAL_ENC_FLAGS_MASK) {
+		if (tmc4361a_events & TMC4361A_SERIAL_ENC_FLAGS_MASK) {
 
 		}
-		if (events & TMC4361A_COVER_DONE_MASK) {
+		if (tmc4361a_events & TMC4361A_COVER_DONE_MASK) {
 			flags.cover_done = 1;
 
 		}
-		if (events & TMC4361A_ENC_VEL0_MASK) {
+		if (tmc4361a_events & TMC4361A_ENC_VEL0_MASK) {
 
 		}
-		if (events & TMC4361A_CL_MAX_MASK) {
+		if (tmc4361a_events & TMC4361A_CL_MAX_MASK) {
 
 		}
-		if (events & TMC4361A_CL_FIT_MASK) {
+		if (tmc4361a_events & TMC4361A_CL_FIT_MASK) {
 
 		}
-		if (events & TMC4361A_STOP_ON_STALL_MASK) {
+		if (tmc4361a_events & TMC4361A_STOP_ON_STALL_MASK) {
 
 		}
-		if (events & TMC4361A_MOTOR_EV_MASK) {
+		if (tmc4361a_events & TMC4361A_MOTOR_EV_MASK) {
 
 		}
-		if (events & TMC4361A_RST_EV_MASK) {
+		if (tmc4361a_events & TMC4361A_RST_EV_MASK) {
 
 		}
+	}
+	if (flags.diag0_triggered) {
+		tmc2160_status = tmc2160_readInt(&TMC2160, TMC2160_DRV_STATUS);
+		if (tmc2160_status & TMC2160_STALLGUARD_MASK) {
+			/** Wait 500ms and restart motor */
+			HAL_Delay(500);
+			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
+					TMC4361A_DRV_AFTER_STALL_MASK,
+					TMC4361A_DRV_AFTER_STALL_SHIFT, 0x01);
+			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
+					TMC4361A_DRV_AFTER_STALL_MASK,
+					TMC4361A_DRV_AFTER_STALL_SHIFT, 0x00);
+		}
+		flags.diag0_triggered = 0;
+	}
+	if (flags.diag1_triggered) {
+
+		flags.diag1_triggered = 0;
 	}
 	if (flags.target_reached) {
 		//flags.target_reached = 0;
@@ -496,16 +521,23 @@ void Trinamic_init(void) {
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_CLK_FREQ, TMC4361A_CLK_FREQ_MASK,
 			TMC4361A_CLK_FREQ_SHIFT, 0x00F42400);
 	Trinamic_ConfigureInputFilters();
+	Trinamic_ConfigureEndstops();
 	Trinamic_ConfigureSPIOutput();
 	Trinamic_ConfigureInterrupts();
 	Trinamic_ConfigureMisc();
 	Trinamic_ConfigureChopper();
-	Trinamic_ConfigureCoolstep();
-	Trinamic_ConfigureDCStep();
+	//Trinamic_ConfigureStealthChop();
+	//Trinamic_ConfigureDCStep();
 	Trinamic_ConfigureStallguard();
+	//Trinamic_ConfigureCoolstep();
 
 	/** Read events register to clear */
 	tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
+
+	/** Enable periodic job timer */
+	//  if (HAL_TIM_OC_Start_IT(&htim15, TIM_CHANNEL_1) != HAL_OK) {
+	//    _Error_Handler(__FILE__, __LINE__);
+	//  }
 }
 
 void Trinamic_ConfigureInputFilters(void) {
@@ -561,10 +593,10 @@ void Trinamic_ConfigureSPIOutput(void) {
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_SPIOUT_CONF,
 			TMC4361A_COVER_DATA_LENGTH_MASK, TMC4361A_COVER_DATA_LENGTH_SHIFT,
 			0x00);
-	/* Set SPI output format to support attached TMC2160 */
+	/* Set SPI output format to support attached TMC2160 in S/D mode */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_SPIOUT_CONF,
 			TMC4361A_SPI_OUTPUT_FORMAT_MASK, TMC4361A_SPI_OUTPUT_FORMAT_SHIFT,
-			0x0D);
+			0x0C);
 	/* Enable cover done update only for cover register */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_SPIOUT_CONF,
 			TMC4361A_COVER_DONE_ONLY_FOR_COVER_MASK,
@@ -573,16 +605,36 @@ void Trinamic_ConfigureSPIOutput(void) {
 }
 
 void Trinamic_ConfigureInterrupts(void) {
-	/* Configure interrupt pin for low-active polarity */
+	/* Configure TMC4361A INTR pin for low-active polarity */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_GENERAL_CONF,
 			TMC4361A_INTR_POL_MASK, TMC4361A_INTR_POL_SHIFT, 0x00);
-	/* Configure interrupt pin as strongly-driven output*/
+	/* Configure TMC4361A INTR pin as strongly-driven output*/
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_GENERAL_CONF,
 			TMC4361A_INTR_TR_PU_PD_EN_MASK, TMC4361A_INTR_TR_PU_PD_EN_SHIFT,
 			0x00);
-	/* Enable interrupt on cover done event */
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_INTR_CONF,
-			TMC4361A_COVER_DONE_MASK, TMC4361A_COVER_DONE_SHIFT, 0x01);
+
+	/** Enable DIAG0 output on driver error (overtemperature, short to ground, undervoltage chargepump) */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
+			TMC2160_DIAG0_ERROR_ONLY_WITH_SD_MODE1_MASK,
+			TMC2160_DIAG0_ERROR_ONLY_WITH_SD_MODE1_SHIFT, 0x01);
+	/** Enable DIAG0 output on overtemperature prewarning */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
+			TMC2160_DIAG0_OTPW_ONLY_WITH_SD_MODE1_MASK,
+			TMC2160_DIAG0_OTPW_ONLY_WITH_SD_MODE1_SHIFT, 0x01);
+	/** Enable DIAG0 output on motor stall. Make sure TCOOLTHRS is set before using this feature. */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF, TMC2160_DIAG0_STALL_MASK,
+			TMC2160_DIAG0_STALL_SHIFT, 0x01);
+	/** Enable DIAG1 output when steps skipped > 0.  */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
+			TMC2160_DIAG1_STEPS_SKIPPED_MASK, TMC2160_DIAG1_STEPS_SKIPPED_SHIFT,
+			0x01);
+	/** Configure DIAG0 and DIAG1 outputs as open collectors */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
+			TMC2160_DIAG0_INT_PUSHPULL_MASK, TMC2160_DIAG0_INT_PUSHPULL_SHIFT,
+			0x00);
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
+			TMC2160_DIAG1_POSCOMP_PUSHPULL_MASK,
+			TMC2160_DIAG1_POSCOMP_PUSHPULL_SHIFT, 0x00);
 }
 
 void Trinamic_ConfigureChopper(void) {
@@ -593,11 +645,11 @@ void Trinamic_ConfigureChopper(void) {
 //  TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_TPWMTHRS, TMC2160_TPWMTHRS_MASK,
 //                       TMC2160_TPWMTHRS_SHIFT, 0x01);
 	/** Set threshold below which CoolStep & StallGuard are disabled */
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_TCOOLTHRS, TMC2160_TCOOLTHRS_MASK,
-			TMC2160_TCOOLTHRS_SHIFT, 0xC8);
+//	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_TCOOLTHRS, TMC2160_TCOOLTHRS_MASK,
+//			TMC2160_TCOOLTHRS_SHIFT, 0xC8);
 	/** Set velocity threshold at which the driver should switch into/out of high speed mode*/
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_THIGH, TMC2160_THIGH_MASK,
-			TMC2160_THIGH_SHIFT, 0x32);
+//	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_THIGH, TMC2160_THIGH_MASK,
+//			TMC2160_THIGH_SHIFT, 0x32);
 	/** Configure StealthChop settings via PWMCONF */
 //  TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_PWMCONF, TMC2160_PWM_AMPL_MASK,
 //                       TMC2160_PWM_AMPL_SHIFT, 0xFF);
@@ -654,23 +706,35 @@ void Trinamic_ConfigureChopper(void) {
 }
 
 void Trinamic_ConfigureStallguard(void) {
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEUP_MASK,
-			TMC2160_SEUP_SHIFT, 0x01);
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SFILT_MASK,
+			TMC2160_SFILT_SHIFT, 0x01);
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SGT_MASK,
+			TMC2160_SGT_SHIFT, 20);
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VSTALL_LIMIT_WR,
+			TMC4361A_VSTALL_LIMIT_MASK, TMC4361A_VSTALL_LIMIT_SHIFT, 0x6300);
+
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEMIN_MASK,
+			TMC2160_SEMIN_SHIFT, 0x05);
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEMAX_MASK,
 			TMC2160_SEMAX_SHIFT, 0x02);
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEDN_MASK,
 			TMC2160_SEDN_SHIFT, 0x01);
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEIMIN_MASK,
-			TMC2160_SEIMIN_SHIFT, 0x01);
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEIMIN_MASK,
-			TMC2160_SEIMIN_SHIFT, 0x01);
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SFILT_MASK,
-			TMC2160_SFILT_SHIFT, 0x01);
+
+	/** Enable stop on stall */
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF, 0x04000000, 26,
+			0x01);
 }
 
 void Trinamic_ConfigureCoolstep(void) {
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEUP_MASK,
+			TMC2160_SEUP_SHIFT, 0x01);
 
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEIMIN_MASK,
+			TMC2160_SEIMIN_SHIFT, 0x01);
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SEIMIN_MASK,
+			TMC2160_SEIMIN_SHIFT, 0x01);
 }
+
 void Trinamic_ConfigureDCStep(void) {
 	/** Configure DCStep commutation settings */
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_DCCTRL, TMC2160_DC_TIME_MASK,
@@ -679,22 +743,21 @@ void Trinamic_ConfigureDCStep(void) {
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_DCCTRL, TMC2160_DC_SG_MASK,
 			TMC2160_DC_SG_SHIFT, 0x70000);
 
+	/** Activate DCStep */
+	//TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_GENERAL_CONF, TMC4361A_DCSTEP_MODE_MASK, TMC4361A_DCSTEP_MODE_SHIFT, 0x02);
 }
 
 void Trinamic_ConfigureEndstops(void) {
-	/** Set STOPL polarity */
+	/** Configure endstops for active high polarity */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_POL_STOP_LEFT_MASK, TMC4361A_POL_STOP_LEFT_SHIFT, 0x00);
-	/** Enable STOPL */
+			TMC4361A_POL_STOP_LEFT_MASK, TMC4361A_POL_STOP_LEFT_SHIFT, 1);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_STOP_LEFT_EN_MASK, TMC4361A_STOP_LEFT_EN_SHIFT, 0x01);
-
-	/** Set STOPR polarity */
+			TMC4361A_POL_STOP_RIGHT_MASK, TMC4361A_POL_STOP_RIGHT_SHIFT, 1);
+	/** Enable endstops */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_POL_STOP_RIGHT_MASK, TMC4361A_POL_STOP_RIGHT_SHIFT, 0x00);
-	/** Enable STOPR */
+			TMC4361A_STOP_LEFT_EN_MASK, TMC4361A_STOP_LEFT_EN_SHIFT, 1);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_STOP_RIGHT_EN_MASK, TMC4361A_STOP_RIGHT_EN_MASK, 0x01);
+			TMC4361A_STOP_RIGHT_EN_MASK, TMC4361A_STOP_RIGHT_EN_SHIFT, 1);
 	/** Configure motion controller to hard stop on switch activation */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
 			TMC4361A_SOFT_STOP_EN_MASK, TMC4361A_SOFT_STOP_EN_SHIFT, 0x00);
@@ -710,31 +773,12 @@ void Trinamic_ConfigureEndstops(void) {
 }
 
 void Trinamic_ConfigureMisc(void) {
-	/** Enable DIAG0 output on driver error (overtemperature, short to ground, undervoltage chargepump) */
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
-			TMC2160_DIAG0_ERROR_ONLY_WITH_SD_MODE1_MASK,
-			TMC2160_DIAG0_ERROR_ONLY_WITH_SD_MODE1_SHIFT, 0x01);
-	/** Enable DIAG0 output on overtemperature prewarning */
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
-			TMC2160_DIAG0_OTPW_ONLY_WITH_SD_MODE1_MASK,
-			TMC2160_DIAG0_OTPW_ONLY_WITH_SD_MODE1_SHIFT, 0x01);
-	/** Enable DIAG0 output on motor stall. Make sure TCOOLTHRS is set before using this feature. */
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF, TMC2160_DIAG0_STALL_MASK,
-			TMC2160_DIAG0_STALL_SHIFT, 0x01);
-	/** Enable DIAG1 output when steps skipped > 0.  */
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
-			TMC2160_DIAG1_STEPS_SKIPPED_MASK, TMC2160_DIAG1_STEPS_SKIPPED_SHIFT,
-			0x01);
-	/** Configure DIAG0 and DIAG1 outputs as open collectors */
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
-			TMC2160_DIAG0_INT_PUSHPULL_MASK, TMC2160_DIAG0_INT_PUSHPULL_SHIFT,
-			0x00);
-	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
-			TMC2160_DIAG1_POSCOMP_PUSHPULL_MASK,
-			TMC2160_DIAG1_POSCOMP_PUSHPULL_SHIFT, 0x00);
-	/** Enable direct mode */
+
+	/** Disable direct mode */
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF, TMC2160_DIRECT_MODE_MASK,
-			TMC2160_DIRECT_MODE_SHIFT, 0x01);
+			TMC2160_DIRECT_MODE_SHIFT, 0x00);
+
+	/** CONFIGURE HARDWARE SWITCHES */
 
 	/** Initialize velocity, current position, and target position to zero*/
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
@@ -743,6 +787,31 @@ void Trinamic_ConfigureMisc(void) {
 			TMC4361A_XACTUAL_SHIFT, 0);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_TARGET, TMC4361A_XTARGET_MASK,
 			TMC4361A_XTARGET_SHIFT, 0);
+
+}
+
+void Trinamic_ConfigureStealthchop(void) {
+	/** Set en_pwm_mode */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF, TMC2160_EN_PWM_MODE_MASK,
+			TMC2160_EN_PWM_MODE_SHIFT, 0x01);
+	/** Set pwm_autoscale */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_PWMCONF, TMC2160_PWM_AUTOSCALE_MASK,
+			TMC2160_PWM_AUTOSCALE_SHIFT, 0x01);
+	/** Set pwm_autograd */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_PWMCONF, TMC2160_PWM_SYMMETRIC_SHIFT,
+			TMC2160_PWM_SYMMETRIC_MASK, 0x01);
+	/** Set pwm_freq to 2*F_CLK/1024 = 31250Hz @ 16MHz F_CLK */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_PWMCONF, TMC2160_PWM_FREQ_MASK,
+			TMC2160_PWM_FREQ_SHIFT, 0x00);
+	/* Enable chopper using basic config TOFF = 5, TBL = 2, HSTART = 4, HEND = 0 */
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_CHOPCONF, TMC2160_TOFF_MASK,
+			TMC2160_TOFF_SHIFT, 0x05);
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_CHOPCONF, TMC2160_TBL_MASK,
+			TMC2160_TBL_SHIFT, 0x02);
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_CHOPCONF, TMC2160_HSTRT_MASK,
+			TMC2160_HSTRT_SHIFT, 0x05);
+	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_CHOPCONF, TMC2160_HEND_MASK,
+			TMC2160_HEND_SHIFT, 0x00);
 
 }
 
@@ -885,29 +954,31 @@ void Test_EEPROMStorageFunction() {
 	uint32_t rand = 0, read = 0;
 	testresults.eeprom_storage = 0;
 	/** Generate random value to write to EEPROM */
-	status = HAL_RNG_GenerateRandomNumber(&hrng, &rand);
-	if (status != HAL_OK) {
-		/** Error: could not generate random number for SPI check. */
-		LED_SetErrorState(ERRSTATE_SELFCHECK_FAIL);
-		return;
-	}
+	while (1) {
+		status = HAL_RNG_GenerateRandomNumber(&hrng, &rand);
+		if (status != HAL_OK) {
+			/** Error: could not generate random number for SPI check. */
+			LED_SetErrorState(ERRSTATE_SELFCHECK_FAIL);
+			return;
+		}
 
-	/** Write random number to EEPROM test area */
-	if (HAL_I2C_Mem_Write(&hi2c1, EEPROM_STORAGE_ADDR,
-	EEPROM_STORAGE_TEST_AREA_START_ADDR,
-	I2C_MEMADD_SIZE_8BIT, (uint8_t *) &rand, 4, 100) != HAL_OK) {
-		/** Error: could not communicate with storage EEPROM. */
-		LED_SetErrorState(ERRSTATE_SELFCHECK_FAIL);
-		return;
-	}
+		/** Write random number to EEPROM test area */
+		if ((status = EEPROM_WriteData(0, &rand, 4)) != HAL_OK) {
+			/** Error: could not communicate with storage EEPROM. */
+			LED_SetErrorState(ERRSTATE_SELFCHECK_FAIL);
+			return;
+		}
 
-	/** Read byte written to the EEPROM test area */
-	if (HAL_I2C_Mem_Read(&hi2c1, EEPROM_STORAGE_ADDR,
-	EEPROM_STORAGE_TEST_AREA_START_ADDR,
-	I2C_MEMADD_SIZE_8BIT, (uint8_t *) &rand, 4, 100) != HAL_OK) {
-		/** Error: could not communicate with storage EEPROM. */
-		LED_SetErrorState(ERRSTATE_SELFCHECK_FAIL);
-		return;
+		/** Read byte written to the EEPROM test area */
+		if ((status = EEPROM_ReadData(0, &read, 4)) != HAL_OK) {
+			/** Error: could not communicate with storage EEPROM. */
+			LED_SetErrorState(ERRSTATE_SELFCHECK_FAIL);
+			return;
+		}
+		if (rand != read) {
+			LED_SetErrorState(ERRSTATE_SELFCHECK_FAIL);
+			return;
+		}
 	}
 	testresults.eeprom_storage = 1;
 }
@@ -933,18 +1004,11 @@ void Test_EEPROMAddressFunction() {
 	testresults.eeprom_address = 1;
 }
 
-void Test_RunSuite(void) {
-//	Test_LEDFunction();
-	Test_SPIFunction();
-	Test_EEPROMAddressFunction();
-//  Test_EEPROMStorageFunction();
-}
-
 HAL_StatusTypeDef EEPROM_GetAddress(uint64_t *result) {
 	HAL_StatusTypeDef status = HAL_OK;
 	uint8_t eui48[6] = { 0 }, eui64[8] = { 0 }, extender[2] = { 0xFF, 0xFE },
 			control_byte = 0;
-	control_byte |= (0x0A << 3); /* Set control code */
+	control_byte |= (0x0A << 3); /* Set control code '0b1010' << 3 */
 	control_byte |= (0x03); /* Set I2C address based on pin configuration */
 	control_byte = control_byte << 1UL; /* Left-shift control byte to make valid 7-bit I2C address*/
 	/** Read 48-bit eui address from EEPROM */
@@ -965,9 +1029,32 @@ HAL_StatusTypeDef EEPROM_GetAddress(uint64_t *result) {
 	return status;
 }
 
-HAL_StatusTypeDef EEPROM_ReadData(uint8_t addr, uint32_t size) {
+HAL_StatusTypeDef EEPROM_ReadData(uint8_t addr, uint8_t* data, uint32_t size) {
 	HAL_StatusTypeDef status = HAL_OK;
+	uint8_t control_byte = 0;
+	/** Bounds check on read parameters */
+	if (addr > 127) {
+		return HAL_ERROR;
+	}
+	if (size > 128) {
+		return HAL_ERROR;
+	}
+	if ((addr + size) > 127) {
+		return HAL_ERROR;
+	}
+	control_byte |= (0x0A << 4); /* Set control code '0b1010' << 4 */
 
+	/* @TODO: Replace multiple iterations in single-byte read mode with optimized
+	 * page read mode routine. */
+	for (int i = 0; i < size; i++) {
+		if ((status = HAL_I2C_Mem_Read(&hi2c1, control_byte,
+				(uint16_t *) (addr + i),
+				I2C_MEMADD_SIZE_8BIT, (uint8_t *) (data + i), 1, 100))
+				!= HAL_OK) {
+			/** Error: could not communicate with EUI address EEPROM. */
+			return status;
+		}
+	}
 	return status;
 }
 
@@ -987,45 +1074,81 @@ HAL_StatusTypeDef EEPROM_WriteData(uint8_t addr, uint8_t *data, uint32_t size) {
 	}
 
 	device_addr = (0x0A) << 3;
-	offset = addr % 8; /* Calculate address offset into page */
-	n_boundaries = (size + offset - 1) / 8; /* Calculate number of page boundaries crossed */
-	page_start = addr - offset; /* Calculate address of page start */
 
-	if (size > 1) {
-		/** Write to EEPROM in page write mode */
-
-		/** Write first few bytes */
-		/* Read page into buffer */
-		if ((status = HAL_I2C_Mem_Read(&hi2c1, device_addr, page_start,
-		I2C_MEMADD_SIZE_8BIT, page_buffer, 8, 100)) != HAL_OK) {
-			/** Error: could not communicate with storage EEPROM. */
-			return status;
-		}
-		memcpy(&page_buffer[offset], &addr, 8 - offset);
-		bytes_written = 8 - offset;
-		page_start += 8;
-
-		for (int i = 0; i < n_boundaries; i++) {
-			/* Read page into buffer */
-			if ((status = HAL_I2C_Mem_Read(&hi2c1, device_addr, page_start,
-			I2C_MEMADD_SIZE_8BIT, page_buffer, 8, 100)) != HAL_OK) {
-				/** Error: could not communicate with storage EEPROM. */
-				return status;
-			}
-			dlen = ((size - bytes_written) < 8) ? (size - bytes_written) : 8;
-			memcpy(&page_buffer[offset], (addr + bytes_written), dlen);
-			bytes_written += dlen;
-
-		}
-	} else {
-		/** Write to EEPROM in single byte write mode */
-		if ((status = HAL_I2C_Mem_Read(&hi2c1, device_addr, addr,
-		I2C_MEMADD_SIZE_8BIT, data, 1, 100)) != HAL_OK) {
+	/* @TODO: Replace multiple iterations in single-byte read mode with optimized
+	 * page read mode routine. */
+	for (int i = 0; i < size; i++) {
+		if ((status = HAL_I2C_Mem_Write(&hi2c1, (device_addr << 1UL),
+				(uint16_t *) (addr + i),
+				I2C_MEMADD_SIZE_8BIT, (uint8_t *) (data + i), 1, 500))
+				!= HAL_OK) {
 			/** Error: could not communicate with storage EEPROM. */
 			return status;
 		}
 	}
+
+//	offset = addr % 8; /* Calculate address offset into page */
+//	n_boundaries = (size + offset - 1) / 8; /* Calculate number of page boundaries crossed */
+//	page_start = addr - offset; /* Calculate address of page start */
+//
+//	if (size > 1) {
+//		/** Write to EEPROM in page write mode */
+//
+//		/** Write first few bytes */
+//		/* Read page into buffer */
+//		if ((status = HAL_I2C_Mem_Read(&hi2c1, device_addr, page_start,
+//		I2C_MEMADD_SIZE_8BIT, page_buffer, 8, 100)) != HAL_OK) {
+//			/** Error: could not communicate with storage EEPROM. */
+//			return status;
+//		}
+//		memcpy(&page_buffer[offset], &addr, 8 - offset);
+//		bytes_written = 8 - offset;
+//		page_start += 8;
+//
+//		for (int i = 0; i < n_boundaries; i++) {
+//			/* Read page into buffer */
+//			if ((status = HAL_I2C_Mem_Read(&hi2c1, device_addr, page_start,
+//			I2C_MEMADD_SIZE_8BIT, page_buffer, 8, 100)) != HAL_OK) {
+//				/** Error: could not communicate with storage EEPROM. */
+//				return status;
+//			}
+//			dlen = ((size - bytes_written) < 8) ? (size - bytes_written) : 8;
+//			memcpy(&page_buffer[offset], (addr + bytes_written), dlen);
+//			bytes_written += dlen;
+//
+//		}
+//	} else {
+//		/** Write to EEPROM in single byte write mode */
+//
+//		if ((status = HAL_I2C_Mem_Write(&hi2c1, device_addr, addr,
+//		I2C_MEMADD_SIZE_8BIT, data, 1, 100)) != HAL_OK) {
+//			/** Error: could not communicate with storage EEPROM. */
+//			return status;
+//		}
+//	}
 	return status;
+}
+
+void System_InitDefaultState(void) {
+	/** Set system state defaults */
+	flags.target_reached = 1;
+	flags.run_periodic_job = 0;
+	flags.rs485_bus_free = 1;
+	flags.internal_temp_ready = 0;
+	flags.address_requested = 0;
+	flags.intr_triggered = 0;
+	flags.home_reached = 0;
+	params.microstep_resolution = 256;
+	params.spr = 0.0f;
+	params.lead = 0.0f;
+	status.motion_params_cfgd = 0;
+	status.homed = 0;
+}
+void System_RunSelfTest(void) {
+	//	Test_LEDFunction();
+	//Test_SPIFunction();
+	Test_EEPROMAddressFunction();
+	Test_EEPROMStorageFunction();
 }
 
 /* USER CODE END 0 */
@@ -1102,35 +1225,11 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-	/** Disable external clock */
-//HAL_GPIO_WritePin(RCC_CLK_GPIO_Port, RCC_CLK_Pin, GPIO_PIN_RESET);
-	/** Set SPI NSS pin high */
-	HAL_GPIO_WritePin(SPI1_NSS_GPIO_Port, SPI1_NSS_Pin, GPIO_PIN_SET);
-
-//  if (HAL_TIM_OC_Start_IT(&htim15, TIM_CHANNEL_1) != HAL_OK) {
-//    _Error_Handler(__FILE__, __LINE__);
-//  }
 //HAL_TIM_Base_Start_IT(&htim1);
 	/* Initialize motor controller and gate driver */
 	Trinamic_init();
-
-	/** Set system state defaults */
-	flags.target_reached = 1;
-	flags.run_periodic_job = 0;
-	flags.rs485_bus_free = 1;
-	flags.internal_temp_ready = 0;
-	flags.address_requested = 0;
-	flags.intr_triggered = 0;
-	flags.home_reached = 0;
-
-	params.microstep_resolution = 256;
-	params.spr = 0.0f;
-	params.lead = 0.0f;
-
-	status.motion_params_cfgd = 0;
-	status.homed = 0;
-
-	Test_RunSuite();
+	System_InitDefaultState();
+	System_RunSelfTest();
 
 	/* Start UART Peripheral */
 	if (HAL_UART_Receive_IT(&huart1, &it_cmd_buffer[0], 1) != HAL_OK) {
@@ -1140,13 +1239,106 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+//		// EN_PWM_MODE=1 enables stealthChop™, MULTISTEP_FILT=1, DIRECT_MODE=0 (off)
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_GCONF | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x0000000C);
+//		HAL_Delay(1); // COVER_DONE flag: ~90µs -> 1 ms more than enough
+//
+//		// TOFF=3, HSTRT=4, HEND=1, TBL=2, CHM=0 (spreadCycle™)
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_CHOPCONF | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x000100C3);
+//		HAL_Delay(1); // COVER_DONE flag: ~90µs -> 1 ms more than enough
+//
+//		// IHOLD=8, IRUN=15 (max. current), IHOLDDELAY=6
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_IHOLD_IRUN | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00080F0A);
+//		HAL_Delay(1); // COVER_DONE flag: ~90µs -> 1 ms more than enough
+//
+//		// TPOWERDOWN=10: Delay before power down in stand still
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_TPOWERDOWN | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x0000000A);
+//		HAL_Delay(1); // COVER_DONE flag: ~90µs -> 1 ms more than enough
+//
+//		// TPWMTHRS=5000
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_TPWMTHRS| 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00001388);
+//		//SPI send: 0xEC000100C3; // CHOPCONF: TOFF=3, HSTRT=4, HEND=1, TBL=2, CHM=0 (spreadCycle)
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_CHOPCONF | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x000100C3);
+//		//SPI send: 0x90; // IHOLD_IRUN: IHOLD=10, IRUN=31 (max. current), IHOLDDELAY=6
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_IHOLD_IRUN | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00061F0A);
+//		//SPI send: 0x910000000A; // TPOWERDOWN=10: Delay before power down in stand still
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_TPOWERDOWN | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x0000000A);
+//		//SPI send: 0x8000000004; // EN_PWM_MODE=1 enables stealthChop (with default PWM_CONF)
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_GCONF | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00000004);
+//		//SPI send: 0x93000001F4; // TPWM_THRS=500 yields a switching velocity about 35000 = ca. 30RPM
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_TPWMTHRS| 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x000001F4);
+//
+		//sendData(0x80, 0x00000080); // GCONF -> Activate diag0_stall (Datasheet Page 31)
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR,
+//		TMC2160_GCONF | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00000080);
+		//sendData(0xED, 0x00000000); // SGT -> Needs to be adapted to get a StallGuard2 event
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0x6D | 0x80);
+//		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00000007);
+		//sendData(0x94, 0x00000040); // TCOOLTHRS -> TSTEP based threshold = 55 (Datasheet Page 38)
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0x94);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00000040);
+		//sendData(0x89, 0x00010606);      // SHORTCONF
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0x89);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00010606);
+		//sendData(0x8A, 0x00080400);      // DRV_CONF
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0x8A);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00080400);
+		//sendData(0x90, 0x00080303);      // IHOLD_IRUN
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0x90);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00080303);
+		//sendData(0x91, 0x0000000A);      // TPOWERDOWN
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0x91);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x0000000A);
+		//sendData(0xAB, 0x00000001);      // VSTOP
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0xAB);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00000001);
+		//sendData(0xBA, 0x00000001);      // ENC_CONST
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0xBA);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x00000001);
+		//sendData(0xEC, 0x15410153);      // CHOPCONF
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0xEC);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x15410153);
+		//sendData(0xF0, 0xC40C001E);      // PWMCONF
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0xF0);
+		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0xC40C001E);
 
-		if (new_cmd_flag) {
-			ProcessCmdBuffer();
-			ts_write(sys_cmd_buffer);
+		sparse_Exec(parser, "X,1,200,1");
+		sparse_Exec(parser, "A,500,500,500,500,4,4");
+		sparse_Exec(parser, "B,400,400");
+		sparse_Exec(parser, "C,1,1");
+
+		while (1) {
+			ProcessEventFlags();
+			res = TMC2160_FIELD_READ(&TMC2160, TMC2160_DRV_STATUS,
+					TMC2160_SG_RESULT_MASK, TMC2160_SG_RESULT_SHIFT);
+			velcur = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_VACTUAL,
+					TMC4361A_VACTUAL_MASK, TMC4361A_VACTUAL_SHIFT);
+			int status = tmc4361A_readInt(&TMC4361A, TMC4361A_STATUS);
+			int events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
+			sgstat = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_STATUS, 0x01000000,
+					24);
+			int refconf = tmc4361A_readInt(&TMC4361A, TMC4361A_REFERENCE_CONF);
+			int coolconf = tmc2160_readInt(&TMC2160, TMC2160_COOLCONF);
+			int chopconf = tmc2160_readInt(&TMC2160, TMC2160_CHOPCONF);
+			int gconf2160 = tmc2160_readInt(&TMC2160, TMC2160_GCONF);
+			HAL_Delay(10);
 		}
-//		ts_write("what\n");
-//		HAL_Delay(100);
+
+//		if (new_cmd_flag) {
+//			ProcessCmdBuffer();
+//			sparse_Exec(parser, sys_cmd_buffer);
+//		}
 	}
   /* USER CODE END 3 */
 }
@@ -1232,10 +1424,7 @@ sparse_StatusTypeDef SetAccelerationCallback(sparse_ArgPack *a) {
 			ConvertDistanceToFullStepsInt(atof(a->arg_list[4])));
 	int32_t bow4 = INT_24_TRUNCATE(
 			ConvertDistanceToFullStepsInt(atof(a->arg_list[5])));
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_ASTART,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, 0);
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_DFINAL,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, 0);
+
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_AMAX,
 			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, amax);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_DMAX,
@@ -1249,21 +1438,63 @@ sparse_StatusTypeDef SetAccelerationCallback(sparse_ArgPack *a) {
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW4,
 			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow4);
 
+	/* Default ramp generator values*/
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_ASTART,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, 0);
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_DFINAL,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, 0);
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VSTART,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, 0);
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VSTOP,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, 0);
+
 	ts_write("@,a");
 	return SPARSE_OK;
 }
 sparse_StatusTypeDef SetCurrentCallback(sparse_ArgPack *a) {
-	uint32_t drive_current = atoi(a->arg_list[0]);
-	uint32_t hold_current = atoi(a->arg_list[1]);
+	/*
+	 Requested current = mA = I_rms/1000
+	 Equation for current:
+	 I_rms = GLOBALSCALER/256 * (CS+1)/32 * V_fs/R_sense * 1/sqrt(2)
+	 Solve for GLOBALSCALER ->
 
+	 32 * 256 * sqrt(2) * I_rms * R_sense    |
+
+	 GLOBALSCALER = ------------------------------------    |
+
+	 (CS + 1) * V_fs               | V_fs = 0.325
+
+	 */
+	float drive_current = atof(a->arg_list[0]);
+	float hold_current = atof(a->arg_list[1]);
+
+	uint32_t V_fs = 325; // 0.325 * 1000
+	uint8_t CS = 31;
+	uint32_t scaler = 0; // = 256
+	const uint16_t RS_scaled = R_SENSE * 0xFFFF; // Scale to 16b
+	uint32_t numerator = 11585; // 32 * 256 * sqrt(2)
+	numerator *= RS_scaled;
+	numerator >>= 8;
+	numerator *= drive_current;
+	do {
+		uint32_t denominator = V_fs * 0xFFFF >> 8;
+		denominator *= CS + 1;
+		scaler = numerator / denominator;
+		if (scaler > 255)
+			scaler = 0; // Maximum
+		else if (scaler < 128)
+			CS--;  // Try again with smaller CS
+	} while (0 < scaler && scaler < 128);
+	//GLOBAL_SCALER(scaler);
+	/* Set global scaler */
+	TMC2160_FIELD_UPDATE(&TMC2160, 0x0B, 0x000000FF, 0, scaler);
 	/* Bounds check on current values */
 	drive_current = (drive_current > 31) ? 31 : drive_current;
 	hold_current = (hold_current > 31) ? 31 : hold_current;
-
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_IHOLD_IRUN, TMC2160_IRUN_MASK,
-			TMC2160_IRUN_SHIFT, drive_current);
+			TMC2160_IRUN_SHIFT, CS);
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_IHOLD_IRUN, TMC2160_IHOLD_MASK,
-			TMC2160_IHOLD_SHIFT, hold_current);
+			TMC2160_IHOLD_SHIFT, (int)(CS * HOLD_CURRENT_MULTIPLIER));
 
 	ts_write("@,b");
 	return SPARSE_OK;

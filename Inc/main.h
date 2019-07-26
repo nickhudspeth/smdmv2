@@ -61,10 +61,13 @@ void _Error_Handler(char *file, uint32_t line);
 #define LED_TIMER_BASE_PERIOD 500
 #define ADDR_SEL_Pin GPIO_PIN_14
 #define ADDR_SEL_GPIO_Port GPIOC
+#define ADDR_SEL_EXTI_IRQn EXTI15_10_IRQn
 #define DIAG0_Pin GPIO_PIN_0
 #define DIAG0_GPIO_Port GPIOA
+#define DIAG0_EXTI_IRQn EXTI0_IRQn
 #define DIAG1_Pin GPIO_PIN_1
 #define DIAG1_GPIO_Port GPIOA
+#define DIAG1_EXTI_IRQn EXTI1_IRQn
 #define LED_R_Pin GPIO_PIN_2
 #define LED_R_GPIO_Port GPIOA
 #define LED_G_Pin GPIO_PIN_3
@@ -89,6 +92,8 @@ void _Error_Handler(char *file, uint32_t line);
 #define EEPROM_STORAGE_ADDR 0x57
 #define EEPROM_STORAGE_TEST_AREA_START_ADDR 0x7B
 #define EEPROM_EUI_ADDR 0xFA
+#define R_SENSE 0.033f
+#define HOLD_CURRENT_MULTIPLIER 0.5f
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
