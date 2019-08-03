@@ -90,11 +90,21 @@ struct params_t {
 	volatile float lead;
 	volatile int8_t sgt;
 	volatile uint32_t device_id;
+	volatile float home_offset;
+	volatile float vmax;
+	volatile float amax;
+	volatile float dmax;
+	volatile float bow1;
+	volatile float bow2;
+	volatile float bow3;
+	volatile float bow4;
 } params;
 
 struct status_t {
 	volatile uint8_t motion_params_cfgd;
-	volatile uint8_t homed;
+	volatile uint8_t homing_started;
+	volatile uint8_t homing_limit_found;
+	volatile uint8_t homing_complete;
 } status;
 
 struct testresults_t {
@@ -160,6 +170,8 @@ HAL_StatusTypeDef EEPROM_WriteData(uint8_t addr, uint8_t *data, uint32_t size);
 int32_t ConvertDistanceToFullStepsInt(float distance);
 int32_t ConvertDistanceToMicroStepsInt(float distance);
 float ConvertDistanceToFullStepsFloat(float distance);
+void ConfigureMotionRamp(float amax, float dmax, float bow1, float bow2,
+		float bow3, float bow4);
 
 void Trinamic_init(void);
 void Trinamic_ConfigureInputFilters(void);
@@ -290,12 +302,36 @@ float ConvertMicroStepsToDistanceFloat(int32_t microsteps) {
 	return ret;
 }
 
+void ConfigureMotionRamp(float amax, float dmax, float bow1, float bow2,
+		float bow3, float bow4) {
+
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_AMAX,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT,
+			FIXED_22_2_MAKE( ConvertDistanceToFullStepsFloat(amax)));
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_DMAX,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT,
+			FIXED_22_2_MAKE( ConvertDistanceToFullStepsFloat(dmax)));
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW1,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT,
+			INT_24_TRUNCATE( ConvertDistanceToFullStepsInt(bow1)));
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW2,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT,
+			INT_24_TRUNCATE( ConvertDistanceToFullStepsInt(bow2)));
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW3,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT,
+			INT_24_TRUNCATE( ConvertDistanceToFullStepsInt(bow3)));
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW4,
+			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT,
+			INT_24_TRUNCATE( ConvertDistanceToFullStepsInt(bow4)));
+}
+
 void ProcessEventFlags(void) {
 	char buf[64];
 	uint32_t tmc4361a_events, tmc2160_status;
 	if (flags.intr_triggered) {
 		/* Read events register. Events register is cleared after this read. */
 		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
+		flags.intr_triggered = 0;
 		if (tmc4361a_events & TMC4361A_TARGET_REACHED_MASK) {
 			flags.target_reached = 1;
 
@@ -331,9 +367,11 @@ void ProcessEventFlags(void) {
 
 		}
 		if (tmc4361a_events & TMC4361A_STOPL_EVENT_MASK) {
+			HAL_Delay(1);
 
 		}
 		if (tmc4361a_events & TMC4361A_STOPR_EVENT_MASK) {
+			HAL_Delay(1);
 
 		}
 		if (tmc4361a_events & TMC4361A_VSTOPL_ACTIVE_MASK) {
@@ -346,10 +384,39 @@ void ProcessEventFlags(void) {
 		}
 		if (tmc4361a_events & TMC4361A_HOME_ERROR_MASK) {
 			flags.home_error = 1;
-
 		}
 		if (tmc4361a_events & TMC4361A_XLATCH_DONE_MASK) {
-
+			if (status.homing_started) {
+				/** STOP THE MOTOR AND DRIVE TO LATCHED X_HOME POSITION */
+				/** Configure ramp for primary homing motion (S-shaped ramp in positioning mode) */
+				ConfigureMotionRamp(100000, 100000, 1000000, 1000000, 1000000,
+						1000000);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
+						TMC4361A_OPERATION_MODE_MASK,
+						TMC4361A_OPERATION_MODE_SHIFT, 0x01);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
+						TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT,
+						0x06);
+				/** Read position latched to X_HOME register and assign to xtarget */
+				volatile int32_t sht = TMC4361A_FIELD_READ(&TMC4361A,
+						TMC4361A_REFERENCE_CONF,
+						TMC4361A_START_HOME_TRACKING_MASK,
+						TMC4361A_START_HOME_TRACKING_SHIFT);
+				volatile int32_t xcurr = TMC4361A_FIELD_READ(&TMC4361A,
+						TMC4361A_XACTUAL, TMC4361A_XACTUAL_MASK,
+						TMC4361A_XACTUAL_SHIFT);
+				volatile int32_t xhome = TMC4361A_FIELD_READ(&TMC4361A,
+						TMC4361A_X_HOME, TMC4361A_X_HOME_MASK,
+						TMC4361A_X_HOME_SHIFT);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_TARGET,
+						TMC4361A_XTARGET_MASK, TMC4361A_XTARGET_SHIFT,
+						TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_X_LATCH_RD, TMC4361A_X_LATCH_MASK, TMC4361A_X_LATCH_SHIFT));
+				/* We exit here and handle the finishing operation in the target_reached handler when the motor reaches
+				 * the home postion. */
+				status.homing_started = 0;
+				status.homing_limit_found = 1;
+				flags.target_reached = 0;
+			}
 		}
 		if (tmc4361a_events & TMC4361A_FS_ACTIVE_MASK) {
 
@@ -396,25 +463,91 @@ void ProcessEventFlags(void) {
 		}
 	}
 	if (flags.diag0_triggered) {
+		/* Read events register. Events register is cleared after this read. */
+		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
 		tmc2160_status = tmc2160_readInt(&TMC2160, TMC2160_DRV_STATUS);
 		if (tmc2160_status & TMC2160_STALLGUARD_MASK) {
-			/** Wait 500ms and restart motor */
-			HAL_Delay(500);
-			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-					TMC4361A_DRV_AFTER_STALL_MASK,
-					TMC4361A_DRV_AFTER_STALL_SHIFT, 0x01);
-			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-					TMC4361A_DRV_AFTER_STALL_MASK,
-					TMC4361A_DRV_AFTER_STALL_SHIFT, 0x00);
+			if (status.homing_started) {
+				volatile int32_t xcurr = TMC4361A_FIELD_READ(&TMC4361A,
+						TMC4361A_XACTUAL, TMC4361A_XACTUAL_MASK,
+						TMC4361A_XACTUAL_SHIFT);
+				/** STOP THE MOTOR AND DRIVE TO LATCHED X_HOME POSITION */
+				/** Configure ramp for primary homing motion (S-shaped ramp in positioning mode) */
+				ConfigureMotionRamp(100000, 100000, 1000000, 1000000, 1000000,
+						1000000);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
+						TMC4361A_OPERATION_MODE_MASK,
+						TMC4361A_OPERATION_MODE_SHIFT, 0x01);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
+						TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT,
+						0x06);
+				/** Read position latched to X_HOME register and assign to xtarget */
+//				volatile int32_t sht = TMC4361A_FIELD_READ(&TMC4361A,
+//						TMC4361A_REFERENCE_CONF,
+//						TMC4361A_START_HOME_TRACKING_MASK,
+//						TMC4361A_START_HOME_TRACKING_SHIFT);
+//				volatile int32_t xcurr = TMC4361A_FIELD_READ(&TMC4361A,
+//						TMC4361A_XACTUAL, TMC4361A_XACTUAL_MASK,
+//						TMC4361A_XACTUAL_SHIFT);
+//				volatile int32_t xhome = TMC4361A_FIELD_READ(&TMC4361A,
+//						TMC4361A_X_HOME, TMC4361A_X_HOME_MASK,
+//						TMC4361A_X_HOME_SHIFT);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_TARGET,
+						TMC4361A_XTARGET_MASK, TMC4361A_XTARGET_SHIFT, xcurr);
+				/* We exit here and handle the finishing operation in the target_reached handler when the motor reaches
+				 * the home postion. */
+				status.homing_started = 0;
+				status.homing_limit_found = 1;
+				flags.target_reached = 0;
+			} else {
+				/** Wait 500ms and restart motor */
+				HAL_Delay(500);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
+						TMC4361A_DRV_AFTER_STALL_MASK,
+						TMC4361A_DRV_AFTER_STALL_SHIFT, 0x01);
+				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
+						TMC4361A_DRV_AFTER_STALL_MASK,
+						TMC4361A_DRV_AFTER_STALL_SHIFT, 0x00);
+			}
 		}
 		flags.diag0_triggered = 0;
 	}
 	if (flags.diag1_triggered) {
+		/* Read events register. Events register is cleared after this read. */
+		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
 
 		flags.diag1_triggered = 0;
 	}
 	if (flags.target_reached) {
-		//flags.target_reached = 0;
+		/* Read events register. Events register is cleared after this read. */
+		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
+		if (status.homing_limit_found) {
+			/* Set VMAX to zero so subsequent operation do not cause motion */
+			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
+					TMC4361A_VMAX_SHIFT, FIXED_23_8_MAKE(0));
+			/** Reset X_HOME,  X_ACTUAL, and X_TARGET to home_offset. */
+			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_HOME,
+					TMC4361A_X_HOME_MASK, TMC4361A_X_HOME_SHIFT,
+					ConvertDistanceToFullStepsInt(params.home_offset));
+			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_XACTUAL,
+					TMC4361A_XACTUAL_MASK, TMC4361A_XACTUAL_SHIFT,
+					ConvertDistanceToFullStepsInt(params.home_offset));
+			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_TARGET,
+					TMC4361A_XTARGET_MASK, TMC4361A_XTARGET_SHIFT,
+					ConvertDistanceToFullStepsInt(params.home_offset));
+
+			/* Reset motion ramp parameters to previous settings. */
+			ConfigureMotionRamp(params.amax, params.dmax, params.bow1,
+					params.bow2, params.bow3, params.bow4);
+
+			/** Send home operation complete acknowledgement upstream*/
+			ts_write("@,h");
+			/** Update motor status. */
+			status.homing_limit_found = 0;
+			status.homing_complete = 1;
+		}
+
+		flags.target_reached = 0;
 	}
 	if (flags.run_periodic_job) {
 		tmc4361A_periodicJob(&TMC4361A, HAL_GetTick());
@@ -531,9 +664,6 @@ void Trinamic_init(void) {
 	Trinamic_ConfigureStallguard();
 	//Trinamic_ConfigureCoolstep();
 
-	/** Read events register to clear */
-	tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
-
 	/** Enable periodic job timer */
 	//  if (HAL_TIM_OC_Start_IT(&htim15, TIM_CHANNEL_1) != HAL_OK) {
 	//    _Error_Handler(__FILE__, __LINE__);
@@ -612,6 +742,9 @@ void Trinamic_ConfigureInterrupts(void) {
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_GENERAL_CONF,
 			TMC4361A_INTR_TR_PU_PD_EN_MASK, TMC4361A_INTR_TR_PU_PD_EN_SHIFT,
 			0x00);
+	/* Enable interrupt on XLATCH_DONE event*/
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_INTR_CONF,
+			TMC4361A_XLATCH_DONE_MASK, TMC4361A_XLATCH_DONE_SHIFT, 0x01);
 
 	/** Enable DIAG0 output on driver error (overtemperature, short to ground, undervoltage chargepump) */
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
@@ -635,6 +768,10 @@ void Trinamic_ConfigureInterrupts(void) {
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_GCONF,
 			TMC2160_DIAG1_POSCOMP_PUSHPULL_MASK,
 			TMC2160_DIAG1_POSCOMP_PUSHPULL_SHIFT, 0x00);
+
+	/** Enable TARGET_REACHED output pulse only for target_reached flag. */
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_INTR_CONF,
+			TMC4361A_TARGET_REACHED_MASK, TMC4361A_TARGET_REACHED_SHIFT, 0x01);
 }
 
 void Trinamic_ConfigureChopper(void) {
@@ -709,7 +846,7 @@ void Trinamic_ConfigureStallguard(void) {
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SFILT_MASK,
 			TMC2160_SFILT_SHIFT, 0x01);
 	TMC2160_FIELD_UPDATE(&TMC2160, TMC2160_COOLCONF, TMC2160_SGT_MASK,
-			TMC2160_SGT_SHIFT, 20);
+			TMC2160_SGT_SHIFT, 10);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VSTALL_LIMIT_WR,
 			TMC4361A_VSTALL_LIMIT_MASK, TMC4361A_VSTALL_LIMIT_SHIFT, 0x6300);
 
@@ -750,14 +887,15 @@ void Trinamic_ConfigureDCStep(void) {
 void Trinamic_ConfigureEndstops(void) {
 	/** Configure endstops for active high polarity */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_POL_STOP_LEFT_MASK, TMC4361A_POL_STOP_LEFT_SHIFT, 1);
+			TMC4361A_POL_STOP_LEFT_MASK, TMC4361A_POL_STOP_LEFT_SHIFT, 0x01);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_POL_STOP_RIGHT_MASK, TMC4361A_POL_STOP_RIGHT_SHIFT, 1);
+			TMC4361A_POL_STOP_RIGHT_MASK, TMC4361A_POL_STOP_RIGHT_SHIFT, 0x01);
 	/** Enable endstops */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_STOP_LEFT_EN_MASK, TMC4361A_STOP_LEFT_EN_SHIFT, 1);
+			TMC4361A_STOP_LEFT_EN_MASK, TMC4361A_STOP_LEFT_EN_SHIFT, 0x01);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_STOP_RIGHT_EN_MASK, TMC4361A_STOP_RIGHT_EN_SHIFT, 1);
+			TMC4361A_STOP_RIGHT_EN_MASK, TMC4361A_STOP_RIGHT_EN_SHIFT, 0x01);
+	int refconf = tmc4361A_readInt(&TMC4361A, TMC4361A_REFERENCE_CONF);
 	/** Configure motion controller to hard stop on switch activation */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
 			TMC4361A_SOFT_STOP_EN_MASK, TMC4361A_SOFT_STOP_EN_SHIFT, 0x00);
@@ -1142,7 +1280,7 @@ void System_InitDefaultState(void) {
 	params.spr = 0.0f;
 	params.lead = 0.0f;
 	status.motion_params_cfgd = 0;
-	status.homed = 0;
+	status.homing_complete = 0;
 }
 void System_RunSelfTest(void) {
 	//	Test_LEDFunction();
@@ -1154,43 +1292,41 @@ void System_RunSelfTest(void) {
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
-  /* USER CODE BEGIN 1 */
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
+	/* USER CODE BEGIN 1 */
 
-  /* USER CODE END 1 */
-  
+	/* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
+	/* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+	HAL_Init();
 
-  /* USER CODE BEGIN Init */
+	/* USER CODE BEGIN Init */
 
-  /* USER CODE END Init */
+	/* USER CODE END Init */
 
-  /* Configure the system clock */
-  SystemClock_Config();
+	/* Configure the system clock */
+	SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
+	/* USER CODE BEGIN SysInit */
 
-  /* USER CODE END SysInit */
+	/* USER CODE END SysInit */
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_I2C1_Init();
-  MX_SPI1_Init();
-  MX_TIM16_Init();
-  MX_TIM1_Init();
-  MX_USART1_UART_Init();
-  MX_TIM15_Init();
-  MX_ADC1_Init();
-  MX_RNG_Init();
-  /* USER CODE BEGIN 2 */
+	/* Initialize all configured peripherals */
+	MX_GPIO_Init();
+	MX_I2C1_Init();
+	MX_SPI1_Init();
+	MX_TIM16_Init();
+	MX_TIM1_Init();
+	MX_USART1_UART_Init();
+	MX_TIM15_Init();
+	MX_ADC1_Init();
+	MX_RNG_Init();
+	/* USER CODE BEGIN 2 */
 
 	/* Configure command parser */
 	parser = sparse_New();
@@ -1202,7 +1338,7 @@ int main(void)
 	sparse_RegisterCallback(parser, 'C', 2, MoveContinuousCallback);
 	sparse_RegisterCallback(parser, 'D', 0, GetEndstopStatusCallback);
 	sparse_RegisterCallback(parser, 'E', 1, SetMicrostepResolutionCallback);
-	sparse_RegisterCallback(parser, 'H', 5, HomeCallback);
+	sparse_RegisterCallback(parser, 'H', 2, HomeCallback);
 	sparse_RegisterCallback(parser, 'J', 2, MoveAbsoluteCallback);
 	sparse_RegisterCallback(parser, 'K', 2, MoveRelativeCallback);
 	sparse_RegisterCallback(parser, 'M', 1, MoveStepsCallback);
@@ -1220,10 +1356,10 @@ int main(void)
 	sparse_RegisterCallback(parser, '*', 1, GetVersionCallback);
 	sparse_RegisterCallback(parser, '!', 0, EmergencyStopCallback);
 
-  /* USER CODE END 2 */
+	/* USER CODE END 2 */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+	/* Infinite loop */
+	/* USER CODE BEGIN WHILE */
 
 //HAL_TIM_Base_Start_IT(&htim1);
 	/* Initialize motor controller and gate driver */
@@ -1235,10 +1371,12 @@ int main(void)
 	if (HAL_UART_Receive_IT(&huart1, &it_cmd_buffer[0], 1) != HAL_OK) {
 		_Error_Handler(__FILE__, __LINE__);
 	}
+	/** Read events register to clear */
+	tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
 	while (1) {
-    /* USER CODE END WHILE */
+		/* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
+		/* USER CODE BEGIN 3 */
 //		// EN_PWM_MODE=1 enables stealthChop™, MULTISTEP_FILT=1, DIRECT_MODE=0 (off)
 //		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, TMC2160_GCONF | 0x80);
 //		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0x0000000C);
@@ -1313,26 +1451,33 @@ int main(void)
 		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_HIGH_WR, 0xF0);
 		tmc4361A_writeInt(&TMC4361A, TMC4361A_COVER_LOW_WR, 0xC40C001E);
 
+		/** Set motion parameters */
 		sparse_Exec(parser, "X,1,200,1");
-		sparse_Exec(parser, "A,500,500,500,500,4,4");
+		/** Set accelerations */
+		sparse_Exec(parser, "A,1000,1000,1000,1000,5000,5000");
+		/** Set current */
 		sparse_Exec(parser, "B,400,400");
-		sparse_Exec(parser, "C,1,1");
+		/** Move continuous*/
+		//sparse_Exec(parser, "C,1,1");
+		/** Home */
+		sparse_Exec(parser, "H,100,15");
 
 		while (1) {
 			ProcessEventFlags();
-			res = TMC2160_FIELD_READ(&TMC2160, TMC2160_DRV_STATUS,
-					TMC2160_SG_RESULT_MASK, TMC2160_SG_RESULT_SHIFT);
-			velcur = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_VACTUAL,
-					TMC4361A_VACTUAL_MASK, TMC4361A_VACTUAL_SHIFT);
-			int status = tmc4361A_readInt(&TMC4361A, TMC4361A_STATUS);
-			int events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
-			sgstat = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_STATUS, 0x01000000,
-					24);
+//			res = TMC2160_FIELD_READ(&TMC2160, TMC2160_DRV_STATUS,
+//					TMC2160_SG_RESULT_MASK, TMC2160_SG_RESULT_SHIFT);
+//			velcur = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_VACTUAL,
+//					TMC4361A_VACTUAL_MASK, TMC4361A_VACTUAL_SHIFT);
+//			int status = tmc4361A_readInt(&TMC4361A, TMC4361A_STATUS);
+//			int events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
+//			sgstat = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_STATUS, 0x01000000,
+//					24);
 			int refconf = tmc4361A_readInt(&TMC4361A, TMC4361A_REFERENCE_CONF);
-			int coolconf = tmc2160_readInt(&TMC2160, TMC2160_COOLCONF);
-			int chopconf = tmc2160_readInt(&TMC2160, TMC2160_CHOPCONF);
-			int gconf2160 = tmc2160_readInt(&TMC2160, TMC2160_GCONF);
-			HAL_Delay(10);
+			int intrconf = tmc4361A_readInt(&TMC4361A, TMC4361A_INTR_CONF);
+//			int coolconf = tmc2160_readInt(&TMC2160, TMC2160_COOLCONF);
+//			int chopconf = tmc2160_readInt(&TMC2160, TMC2160_CHOPCONF);
+//			int gconf2160 = tmc2160_readInt(&TMC2160, TMC2160_GCONF);
+//			HAL_Delay(10);
 		}
 
 //		if (new_cmd_flag) {
@@ -1340,72 +1485,69 @@ int main(void)
 //			sparse_Exec(parser, sys_cmd_buffer);
 //		}
 	}
-  /* USER CODE END 3 */
+	/* USER CODE END 3 */
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
+	RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+	RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
+	RCC_PeriphCLKInitTypeDef PeriphClkInit = { 0 };
 
-  /** Initializes the CPU, AHB and APB busses clocks 
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 10;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Initializes the CPU, AHB and APB busses clocks 
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+	/** Initializes the CPU, AHB and APB busses clocks
+	 */
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+	RCC_OscInitStruct.PLL.PLLM = 1;
+	RCC_OscInitStruct.PLL.PLLN = 10;
+	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+	RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+	RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+		Error_Handler();
+	}
+	/** Initializes the CPU, AHB and APB busses clocks
+	 */
+	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+			| RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1|RCC_PERIPHCLK_I2C1
-                              |RCC_PERIPHCLK_RNG|RCC_PERIPHCLK_ADC;
-  PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK2;
-  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_PCLK1;
-  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
-  PeriphClkInit.RngClockSelection = RCC_RNGCLKSOURCE_PLLSAI1;
-  PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_HSI;
-  PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
-  PeriphClkInit.PLLSAI1.PLLSAI1N = 8;
-  PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
-  PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV4;
-  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK|RCC_PLLSAI1_ADC1CLK;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSI, RCC_MCODIV_2);
-  /** Configure the main internal regulator output voltage 
-  */
-  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK) {
+		Error_Handler();
+	}
+	PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1
+			| RCC_PERIPHCLK_I2C1 | RCC_PERIPHCLK_RNG | RCC_PERIPHCLK_ADC;
+	PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK2;
+	PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_PCLK1;
+	PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
+	PeriphClkInit.RngClockSelection = RCC_RNGCLKSOURCE_PLLSAI1;
+	PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_HSI;
+	PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
+	PeriphClkInit.PLLSAI1.PLLSAI1N = 8;
+	PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
+	PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV4;
+	PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
+	PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK
+			| RCC_PLLSAI1_ADC1CLK;
+	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
+		Error_Handler();
+	}
+	HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSI, RCC_MCODIV_2);
+	/** Configure the main internal regulator output voltage
+	 */
+	if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1)
+			!= HAL_OK) {
+		Error_Handler();
+	}
 }
 
 /* USER CODE BEGIN 4 */
@@ -1425,18 +1567,26 @@ sparse_StatusTypeDef SetAccelerationCallback(sparse_ArgPack *a) {
 	int32_t bow4 = INT_24_TRUNCATE(
 			ConvertDistanceToFullStepsInt(atof(a->arg_list[5])));
 
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_AMAX,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, amax);
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_DMAX,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, dmax);
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW1,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow1);
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW2,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow2);
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW3,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow3);
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW4,
-			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow4);
+	ConfigureMotionRamp(amax, dmax, bow1, bow2, bow3, bow4);
+	params.amax = amax;
+	params.dmax = dmax;
+	params.bow1 = bow1;
+	params.bow2 = bow2;
+	params.bow3 = bow3;
+	params.bow4 = bow4;
+
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_AMAX,
+//			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, amax);
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_DMAX,
+//			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, dmax);
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW1,
+//			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow1);
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW2,
+//			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow2);
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW3,
+//			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow3);
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_BOW4,
+//			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT, bow4);
 
 	/* Default ramp generator values*/
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_ASTART,
@@ -1512,12 +1662,14 @@ sparse_StatusTypeDef MoveContinuousCallback(sparse_ArgPack *a) {
 
 	/** Configure ramp for motion (S-shaped ramp in constant velocity mode) */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
+			TMC4361A_OPERATION_MODE_MASK, TMC4361A_OPERATION_MODE_SHIFT, 0x00);
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
 			TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT, 0x02);
 
 	/** Set velocity and start motion */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
 			TMC4361A_VMAX_SHIFT,
-			FIXED_23_8_MAKE( ConvertDistanceToMicroStepsFloat(vel)));
+			FIXED_23_8_MAKE( ConvertDistanceToFullStepsFloat(vel)));
 
 	flags.target_reached = 0;
 	ts_write("@,c");
@@ -1557,60 +1709,44 @@ sparse_StatusTypeDef SetMicrostepResolutionCallback(sparse_ArgPack *a) {
 }
 
 sparse_StatusTypeDef HomeCallback(sparse_ArgPack *a) {
-	uint8_t dir = atoi(a->arg_list[0]);
-	float home_vel_primary = fabs(atof(a->arg_list[1]));
-	float retract_distance = fabs(atof(a->arg_list[3])); /* mm */
-	float home_offset = atof(a->arg_list[4]); /* mm*/
+	/** The direction parameter can be removed here since the velocity
+	 * value is a signed value. If the direction of the home switch orientation
+	 * needs to be inverted, this should be done in SetMotionParametersCallback()*/
+	//uint8_t dir = atoi(a->arg_list[0]);
+	float home_vel_primary = atof(a->arg_list[0]);
+	float home_offset = atof(a->arg_list[1]); /* mm*/
 
 	if (!status.motion_params_cfgd) {
 		ts_write("!,H1");
 		return SPARSE_ERROR;
 	}
-	/* Set homing direction and corresponding endstop */
-	if (dir == 0) {
-		TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-				TMC4361A_STOP_LEFT_IS_HOME_MASK,
-				TMC4361A_STOP_LEFT_IS_HOME_SHIFT, 0x01);
-	} else {
-		/* TMC4361A_STOP_RIGHT_IS_HOME_MASK and TMC4361A_STOP_RIGHT_IS_HOME_SHIFT
-		 * are not defined in the TMC4361A library, so we make the appropriate mask
-		 * by shifting TMC4361A_STOP_LEFT_IS_HOME_MASK and adding one to
-		 * TMC4361A_STOP_LEFT_IS_HOME_SHIFT*/
-		TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-				(TMC4361A_STOP_LEFT_IS_HOME_MASK << 1),
-				(TMC4361A_STOP_LEFT_IS_HOME_SHIFT + 1), 0x01);
-	}
-	/** HOME_REF == 0 indicates positive direction to the right of X_HOME. */
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_HOME_EVENT_MASK, TMC4361A_HOME_EVENT_SHIFT, 0x0C);
 
+	params.home_offset = home_offset;
+//	if (home_vel_primary < 0) {
+//		TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
+//				TMC4361A_STOP_LEFT_IS_HOME_MASK,
+//				TMC4361A_STOP_LEFT_IS_HOME_SHIFT, 0x01);
+//	} else {
+//		/** TMC4361A_STOP_RIGHT_IS_HOME_MASK and TMC4361A_STOP_RIGHT_IS_HOME_SHIFT definitions are not available */
+//		TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF, 0x00008000,
+//				15, 0x01);
+//	}
 	/** Configure ramp for primary homing motion (S-shaped ramp in constant velocity mode) */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
 			TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT, 0x02);
 
 	/** Enable home tracking mode */
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
-			TMC4361A_START_HOME_TRACKING_MASK,
-			TMC4361A_START_HOME_TRACKING_SHIFT, 0x01);
-
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
+//			TMC4361A_START_HOME_TRACKING_MASK,
+//			TMC4361A_START_HOME_TRACKING_SHIFT, 0x01);
+	/** HOME_REF == 0 indicates positive direction to the right of X_HOME. */
+//	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_REFERENCE_CONF,
+//			TMC4361A_HOME_EVENT_MASK, TMC4361A_HOME_EVENT_SHIFT, 0x02);
 	/** Start motion toward home switch at home_vel_primary*/
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
 			TMC4361A_VMAX_SHIFT,
 			FIXED_23_8_MAKE( ConvertDistanceToFullStepsFloat(home_vel_primary)));
-
-	/* Wait until home event has been triggered */
-	while (!flags.home_reached) {
-
-	}
-
-	/** Update current position with home offset */
-	if (home_offset) {
-		TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VACTUAL,
-				TMC4361A_VACTUAL_MASK, TMC4361A_VACTUAL_SHIFT,
-				ConvertDistanceToMicroStepsInt(home_offset));
-	}
-	status.homed = 1;
-	ts_write("@,h");
+	status.homing_started = 1;
 	return SPARSE_OK;
 }
 
@@ -1621,8 +1757,10 @@ sparse_StatusTypeDef MoveAbsoluteCallback(sparse_ArgPack *a) {
 
 	float dist = atof(a->arg_list[0]);
 	uint32_t vel = atof(a->arg_list[1]);
-	/** Configure ramp for motion */
+	/** CONFIGURE MOTION RAMP */
 	/* S-shaped ramp in position mode */
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
+			TMC4361A_OPERATION_MODE_MASK, TMC4361A_OPERATION_MODE_SHIFT, 0x01);
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
 			TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT, 0x06);
 	/* Set velocity */
@@ -1893,32 +2031,30 @@ void _Error_Handler(char *file, uint32_t line) {
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
+	/* USER CODE BEGIN Error_Handler_Debug */
 	/* User can add his own implementation to report the HAL error return state */
 
-  /* USER CODE END Error_Handler_Debug */
+	/* USER CODE END Error_Handler_Debug */
 }
 
 #ifdef  USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(char *file, uint32_t line)
-{ 
-  /* USER CODE BEGIN 6 */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
+void assert_failed(char *file, uint32_t line) {
+	/* USER CODE BEGIN 6 */
 	/* User can add his own implementation to report the file name and line
 	 number,
 	 tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+	/* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
 
