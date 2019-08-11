@@ -7,3 +7,6 @@
 [submodule "Drivers/TMC-API"]
 	path = Drivers/TMC-API
 	url = https://github.com/trinamic/TMC-API.git
+[submodule "Drivers/cdxbus"]
+	path = Drivers/cdxbus
+	url = ssh://git@gitlab.cdxserver.net:45038/Libraries/cdxbus.git

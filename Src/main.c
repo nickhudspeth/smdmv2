@@ -105,6 +105,9 @@ struct status_t {
 	volatile uint8_t homing_started;
 	volatile uint8_t homing_limit_found;
 	volatile uint8_t homing_complete;
+	volatile uint8_t moving_absolute;
+	volatile uint8_t moving_relative;
+	volatile uint8_t paused;
 } status;
 
 struct testresults_t {
@@ -141,6 +144,7 @@ sparse_StatusTypeDef MoveStepsCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef MoveMicrostepsCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef GetPositionCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef ResumeCallback(sparse_ArgPack *a);
+sparse_StatusTypeDef PauseCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef StopCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef GetTemperatureCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef SetVelocityCallback(sparse_ArgPack *a);
@@ -210,7 +214,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 void UART_IdleLineCallback(UART_HandleTypeDef *huart) {
 	flags.rs485_bus_free = 1;
 	__HAL_UART_CLEAR_IDLEFLAG(huart);
-
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
@@ -304,7 +307,6 @@ float ConvertMicroStepsToDistanceFloat(int32_t microsteps) {
 
 void ConfigureMotionRamp(float amax, float dmax, float bow1, float bow2,
 		float bow3, float bow4) {
-
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_AMAX,
 			TMC4361A_FREQUENCY_MODE_MASK, TMC4361A_FREQUENCY_MODE_SHIFT,
 			FIXED_22_2_MAKE( ConvertDistanceToFullStepsFloat(amax)));
@@ -336,55 +338,71 @@ void ProcessEventFlags(void) {
 			flags.target_reached = 1;
 
 		}
+
 		if (tmc4361a_events & TMC4361A_POS_COMP_REACHED_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_VEL_REACHED_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_VEL_STATE_00_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_VEL_STATE_01_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_VEL_STATE_10_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_RAMP_STATE_00_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_RAMP_STATE_01_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_RAMP_STATE_10_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_MAX_PHASE_TRAP_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_FROZEN_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_STOPL_EVENT_MASK) {
 			HAL_Delay(1);
 
 		}
+
 		if (tmc4361a_events & TMC4361A_STOPR_EVENT_MASK) {
 			HAL_Delay(1);
 
 		}
+
 		if (tmc4361a_events & TMC4361A_VSTOPL_ACTIVE_MASK) {
 
 		}
+
 		if (tmc4361a_events & (TMC4361A_VSTOPL_ACTIVE_MASK << 1)) {
 			/* VSTOPR event mask is not defined in the TMC4361A library,
 			 * so we make the appropriate mask by shifting VSTOPL_ACTIVE_MASK */
 
 		}
+
 		if (tmc4361a_events & TMC4361A_HOME_ERROR_MASK) {
 			flags.home_error = 1;
 		}
+
 		if (tmc4361a_events & TMC4361A_XLATCH_DONE_MASK) {
 			if (status.homing_started) {
 				/** STOP THE MOTOR AND DRIVE TO LATCHED X_HOME POSITION */
@@ -418,56 +436,74 @@ void ProcessEventFlags(void) {
 				flags.target_reached = 0;
 			}
 		}
+
 		if (tmc4361a_events & TMC4361A_FS_ACTIVE_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_ENC_FAIL_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_N_ACTIVE_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_ENC_DONE_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_SER_ENC_DATA_FAIL_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_SER_DATA_DONE_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_SERIAL_ENC_FLAGS_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_COVER_DONE_MASK) {
 			flags.cover_done = 1;
 
 		}
+
 		if (tmc4361a_events & TMC4361A_ENC_VEL0_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_CL_MAX_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_CL_FIT_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_STOP_ON_STALL_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_MOTOR_EV_MASK) {
 
 		}
+
 		if (tmc4361a_events & TMC4361A_RST_EV_MASK) {
 
 		}
 	}
+
 	if (flags.diag0_triggered) {
 		/* Read events register. Events register is cleared after this read. */
 		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
 		tmc2160_status = tmc2160_readInt(&TMC2160, TMC2160_DRV_STATUS);
+
 		if (tmc2160_status & TMC2160_STALLGUARD_MASK) {
+
 			if (status.homing_started) {
+				/* Read current position from XACTUAL register */
 				volatile int32_t xcurr = TMC4361A_FIELD_READ(&TMC4361A,
 						TMC4361A_XACTUAL, TMC4361A_XACTUAL_MASK,
 						TMC4361A_XACTUAL_SHIFT);
@@ -481,17 +517,7 @@ void ProcessEventFlags(void) {
 				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
 						TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT,
 						0x06);
-				/** Read position latched to X_HOME register and assign to xtarget */
-//				volatile int32_t sht = TMC4361A_FIELD_READ(&TMC4361A,
-//						TMC4361A_REFERENCE_CONF,
-//						TMC4361A_START_HOME_TRACKING_MASK,
-//						TMC4361A_START_HOME_TRACKING_SHIFT);
-//				volatile int32_t xcurr = TMC4361A_FIELD_READ(&TMC4361A,
-//						TMC4361A_XACTUAL, TMC4361A_XACTUAL_MASK,
-//						TMC4361A_XACTUAL_SHIFT);
-//				volatile int32_t xhome = TMC4361A_FIELD_READ(&TMC4361A,
-//						TMC4361A_X_HOME, TMC4361A_X_HOME_MASK,
-//						TMC4361A_X_HOME_SHIFT);
+				/** Assign position read at function entry to XTARGET */
 				TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_TARGET,
 						TMC4361A_XTARGET_MASK, TMC4361A_XTARGET_SHIFT, xcurr);
 				/* We exit here and handle the finishing operation in the target_reached handler when the motor reaches
@@ -512,15 +538,18 @@ void ProcessEventFlags(void) {
 		}
 		flags.diag0_triggered = 0;
 	}
+
 	if (flags.diag1_triggered) {
 		/* Read events register. Events register is cleared after this read. */
 		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
 
 		flags.diag1_triggered = 0;
 	}
+
 	if (flags.target_reached) {
 		/* Read events register. Events register is cleared after this read. */
 		tmc4361a_events = tmc4361A_readInt(&TMC4361A, TMC4361A_EVENTS);
+
 		if (status.homing_limit_found) {
 			/* Set VMAX to zero so subsequent operation do not cause motion */
 			TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
@@ -547,18 +576,31 @@ void ProcessEventFlags(void) {
 			status.homing_complete = 1;
 		}
 
+		if (status.moving_absolute) {
+			status.moving_absolute = 0;
+			ts_write("@,j");
+		}
+
+		if (status.moving_relative) {
+			status.moving_relative = 0;
+			ts_write("@,k");
+		}
+
 		flags.target_reached = 0;
 	}
+
 	if (flags.run_periodic_job) {
 		tmc4361A_periodicJob(&TMC4361A, HAL_GetTick());
 		flags.run_periodic_job = 0;
 	}
+
 	if (flags.internal_temp_ready) {
 		sprintf(buf, "@t,%f", internal_temp);
 		/* Create and send CDXBUS frame with internal temperature. */
 		ts_write(buf);
 		flags.internal_temp_ready = 0;
 	}
+
 	if (flags.address_requested) {
 		SendDeviceAddress();
 		flags.address_requested = 0;
@@ -1460,7 +1502,8 @@ int main(void) {
 		/** Move continuous*/
 		//sparse_Exec(parser, "C,1,1");
 		/** Home */
-		sparse_Exec(parser, "H,100,15");
+		//sparse_Exec(parser, "H,100,15");
+		sparse_Exec(parser, "J,1,100");
 
 		while (1) {
 			ProcessEventFlags();
@@ -1720,6 +1763,9 @@ sparse_StatusTypeDef HomeCallback(sparse_ArgPack *a) {
 		ts_write("!,H1");
 		return SPARSE_ERROR;
 	}
+	if (status.paused) {
+		ts_write("!,H2");
+	}
 
 	params.home_offset = home_offset;
 //	if (home_vel_primary < 0) {
@@ -1754,6 +1800,9 @@ sparse_StatusTypeDef MoveAbsoluteCallback(sparse_ArgPack *a) {
 	if (!status.motion_params_cfgd) {
 		ts_write("!,J1");
 	}
+	if (status.paused) {
+		ts_write("!,J2");
+	}
 
 	float dist = atof(a->arg_list[0]);
 	uint32_t vel = atof(a->arg_list[1]);
@@ -1772,6 +1821,7 @@ sparse_StatusTypeDef MoveAbsoluteCallback(sparse_ArgPack *a) {
 			TMC4361A_XTARGET_SHIFT,
 			FIXED_23_8_MAKE( ConvertDistanceToFullStepsFloat(dist)));
 	flags.target_reached = 0;
+	status.moving_absolute = 1;
 	ts_write("@,j");
 	return SPARSE_OK;
 }
@@ -1782,28 +1832,27 @@ sparse_StatusTypeDef MoveRelativeCallback(sparse_ArgPack *a) {
 	if (!status.motion_params_cfgd) {
 		ts_write("!,K1");
 	}
+	if (status.paused) {
+		ts_write("!,K2");
+	}
+
 	float dist = atof(a->arg_list[0]);
 	uint32_t vel = FIXED_23_8_MAKE(
-			ConvertDistanceToMicroStepsFloat(atof(a->arg_list[1])));
-	//uint8_t dir = atoi(a->arg_list[2]);  // Distance is signed. this field should be deprecated.
-	uint32_t cpos_us;
-
-	/** Get current position (microsteps) */
-	cpos_us = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_XACTUAL,
-			TMC4361A_XACTUAL_MASK, TMC4361A_XACTUAL_SHIFT);
+			ConvertDistanceToFullStepsFloat(atof(a->arg_list[1])));
 
 	/** Configure ramp for motion (S-shaped ramp in positioning mode) */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
 			TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT, 0x06);
-	/** Set XTARGET */
+	/** Set XTARGET to current position plus relative offset */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_TARGET, TMC4361A_XTARGET_MASK,
 			TMC4361A_XTARGET_SHIFT,
-			cpos_us + ConvertDistanceToMicroStepsInt(dist));
+			(TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_XACTUAL, TMC4361A_XACTUAL_MASK, TMC4361A_XACTUAL_SHIFT) + ConvertDistanceToMicroStepsInt(dist)));
 	/** Set velocity and start motion */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
 			TMC4361A_VMAX_SHIFT, vel);
 
 	flags.target_reached = 0;
+	status.moving_relative = 1;
 	ts_write("@,k");
 	return SPARSE_OK;
 }
@@ -1860,13 +1909,25 @@ sparse_StatusTypeDef GetPositionCallback(sparse_ArgPack *a) {
 }
 
 sparse_StatusTypeDef ResumeCallback(sparse_ArgPack *a) {
+	/* Resume motion by restoring previous VMAX value. */
+	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
+			TMC4361A_VMAX_SHIFT,
+			FIXED_23_8_MAKE(ConvertDistanceToFullStepsFloat(params.vmax)));
+	status.paused = 0;
 	ts_write("@,r");
 	return SPARSE_OK;
 }
 
+sparse_StatusTypeDef PauseCallback(sparse_ArgPack *a) {
+
+	return SPARSE_OK;
+}
+
 sparse_StatusTypeDef StopCallback(sparse_ArgPack *a) {
+	/* Pause motion by setting VMAX value to zero. */
 	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
 			TMC4361A_VMAX_SHIFT, 0);
+	status.paused = 1;
 	ts_write("@,s");
 	return SPARSE_OK;
 }
