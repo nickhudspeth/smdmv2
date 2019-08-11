@@ -135,13 +135,10 @@ void SystemClock_Config(void);
 sparse_StatusTypeDef SetAccelerationCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef SetCurrentCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef MoveContinuousCallback(sparse_ArgPack *a);
-sparse_StatusTypeDef GetEndstopStatusCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef SetMicrostepResolutionCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef HomeCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef MoveAbsoluteCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef MoveRelativeCallback(sparse_ArgPack *a);
-sparse_StatusTypeDef MoveStepsCallback(sparse_ArgPack *a);
-sparse_StatusTypeDef MoveMicrostepsCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef GetPositionCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef ResumeCallback(sparse_ArgPack *a);
 sparse_StatusTypeDef PauseCallback(sparse_ArgPack *a);
@@ -1378,13 +1375,10 @@ int main(void) {
 	sparse_RegisterCallback(parser, 'A', 6, SetAccelerationCallback);
 	sparse_RegisterCallback(parser, 'B', 2, SetCurrentCallback);
 	sparse_RegisterCallback(parser, 'C', 2, MoveContinuousCallback);
-	sparse_RegisterCallback(parser, 'D', 0, GetEndstopStatusCallback);
 	sparse_RegisterCallback(parser, 'E', 1, SetMicrostepResolutionCallback);
 	sparse_RegisterCallback(parser, 'H', 2, HomeCallback);
 	sparse_RegisterCallback(parser, 'J', 2, MoveAbsoluteCallback);
 	sparse_RegisterCallback(parser, 'K', 2, MoveRelativeCallback);
-	sparse_RegisterCallback(parser, 'M', 1, MoveStepsCallback);
-	sparse_RegisterCallback(parser, 'N', 1, MoveMicrostepsCallback);
 	sparse_RegisterCallback(parser, 'P', 1, GetPositionCallback);
 	sparse_RegisterCallback(parser, 'R', 0, ResumeCallback);
 	sparse_RegisterCallback(parser, 'S', 0, StopCallback);
@@ -1719,11 +1713,6 @@ sparse_StatusTypeDef MoveContinuousCallback(sparse_ArgPack *a) {
 	return SPARSE_OK;
 }
 
-sparse_StatusTypeDef GetEndstopStatusCallback(sparse_ArgPack *a) {
-	ts_write("@,d");
-	return SPARSE_OK;
-}
-
 sparse_StatusTypeDef SetMicrostepResolutionCallback(sparse_ArgPack *a) {
 	uint16_t res = (uint16_t) (atof(a->arg_list[0]) + 0.5f);
 	uint8_t i = 0;
@@ -1854,46 +1843,6 @@ sparse_StatusTypeDef MoveRelativeCallback(sparse_ArgPack *a) {
 	flags.target_reached = 0;
 	status.moving_relative = 1;
 	ts_write("@,k");
-	return SPARSE_OK;
-}
-
-sparse_StatusTypeDef MoveStepsCallback(sparse_ArgPack *a) {
-	/** If motion parameters have not yet been configured, indicate an error
-	 * condition and return */
-	if (!status.motion_params_cfgd) {
-		ts_write("!,M1");
-	}
-	uint32_t steps = atoi(a->arg_list[0]) * params.microstep_resolution;
-	uint32_t vel = FIXED_23_8_MAKE(
-			ConvertDistanceToMicroStepsFloat(atof(a->arg_list[1])));
-
-	/** Get current position (microsteps) */
-	uint32_t cpos_us = TMC4361A_FIELD_READ(&TMC4361A, TMC4361A_XACTUAL,
-			TMC4361A_XACTUAL_MASK, TMC4361A_XACTUAL_SHIFT);
-	/** Set XTARGET */
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_X_TARGET, TMC4361A_XTARGET_MASK,
-			TMC4361A_XTARGET_SHIFT, (cpos_us + steps));
-
-	/** Configure ramp for motion (S-shaped ramp in positioning mode) */
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_RAMPMODE,
-			TMC4361A_RAMP_PROFILE_MASK, TMC4361A_RAMP_PROFILE_SHIFT, 0x06);
-	/** Set velocity and start motion */
-	TMC4361A_FIELD_UPDATE(&TMC4361A, TMC4361A_VMAX, TMC4361A_VMAX_MASK,
-			TMC4361A_VMAX_SHIFT, vel);
-
-	flags.target_reached = 0;
-	ts_write("@,m");
-	return SPARSE_OK;
-}
-
-sparse_StatusTypeDef MoveMicrostepsCallback(sparse_ArgPack *a) {
-	/** If motion parameters have not yet been configured, indicate an error
-	 * condition and return */
-	if (!status.motion_params_cfgd) {
-		ts_write("!,N1");
-	}
-	flags.target_reached = 0;
-	ts_write("@,n");
 	return SPARSE_OK;
 }
 
