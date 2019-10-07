@@ -41,25 +41,39 @@
 #ifndef ERRORSTATES_H_
 #define ERRORSTATES_H_
 /**********************    INCLUDE DIRECTIVES    ***********************/
-
+#include <stdint.h>
 /**************    CONSTANTS, MACROS, & DATA STRUCTURES    ***************/
 /** The device is functioning normally. */
 #define ERRSTATE_NONE 0x09
 /** The device is in a non-error paused motion state and will remain in this
  * state pending issuance of a RESUME command. Upon receipt of a RESUME command,
  * motion will continue from the current location to the destination. */
-#define ERRSTATE_PAUSED 0x02
+#define ERRSTATE_PAUSED 0x13
 /** Motor drivers have been disabled and any current motion operations in
  * progress have been cancelled due to receipt of an EMERGENCY STOP command. The
  * device will remain in this state pending issuance of a RESUME command. Upon
  * receipt of a RESUME command, the device will be returned to normal
  * operational state. */
 #define ERRSTATE_ESTOP 0x04
-#define ERRSTATE_OVERHEAT 0x14
+#define ERRSTATE_OVERHEAT 0x1C
 #define ERRSTATE_OVERCURRENT 0x11
-#define ERRSTATE_UNINITIALIZED 0x0A
-#define ERRSTATE_SELFCHECK_FAIL 0x1D
+#define ERRSTATE_UNINITIALIZED 0x01
+#define ERRSTATE_SELFCHECK_FAIL 0x14
+#define ERRSTATE_INMOTION	0x15
+#define ERRSTATE_TARGET_REACHED 0x02
+
+static uint8_t errorstates_array[] = {
+ERRSTATE_NONE,
+ERRSTATE_PAUSED,
+ERRSTATE_ESTOP,
+ERRSTATE_OVERHEAT,
+ERRSTATE_OVERCURRENT,
+ERRSTATE_UNINITIALIZED,
+ERRSTATE_SELFCHECK_FAIL,
+ERRSTATE_INMOTION,
+ERRSTATE_TARGET_REACHED };
 
 /***********************    FUNCTION PROTOTYPES    ***********************/
+void errorstate_getstring(uint8_t state, char* buffer);
 
 #endif /* ERRORSTATES_H_ */
