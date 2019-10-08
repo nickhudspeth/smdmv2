@@ -1052,7 +1052,6 @@ void tmc4361A_readWriteArray(uint8_t channel, uint8_t *data, size_t length) {
 
 void tmc2160_readWriteArray(uint8_t channel, uint8_t *data, size_t length) {
 	tmc4361A_readWriteCover(&TMC4361A, data, length);
-	HAL_Delay(1);
 }
 
 void SendDeviceAddress(void) {
